@@ -76,6 +76,7 @@ function rota(a, p) {
     case 'login': return login(p);
     case 'punch': return punch(p);
     case 'myPunches': { const f = auth(p); return batidasDe(f.id, p.ym); }
+    case 'inicio': { const f = auth(p); return { punches: batidasDe(f.id, p.ym), info: { func: pub(f), tol: +cfg('tolerancia') || 0, exigirSelfie: isTrue(cfg('exigirSelfie')), confirmacoes: rows('Confirmacoes').filter(c => c.funcId === f.id) } }; }
     case 'myInfo': { const f = auth(p); return { func: pub(f), tol: +cfg('tolerancia') || 0, exigirSelfie: isTrue(cfg('exigirSelfie')), confirmacoes: rows('Confirmacoes').filter(c => c.funcId === f.id) }; }
     case 'confirm': return confirmar(p);
     case 'adminLogin': admin(p); return true;
@@ -391,19 +392,23 @@ function espelho(func, batidas, ym, tol) {
 }
 
 /* ===================== PLANILHA ===================== */
-function ss() { return SpreadsheetApp.openById(P.getProperty('SHEET_ID')); }
+// Planilha aberta e lida uma vez por requisição (antes relia a cada consulta)
+let SS_ = null; const MEMO_ = {};
+function ss() { return SS_ || (SS_ = SpreadsheetApp.openById(P.getProperty('SHEET_ID'))); }
 function rows(nome) {
+  if (MEMO_[nome]) return MEMO_[nome];
   const v = ss().getSheetByName(nome).getDataRange().getValues(); const h = v.shift();
-  return v.filter(r => r.join('') !== '').map(r => { const o = {}; h.forEach((k, i) => o[k] = r[i] instanceof Date ? Utilities.formatDate(r[i], TZ, 'yyyy-MM-dd') : r[i]); return o; });
+  return MEMO_[nome] = v.filter(r => r.join('') !== '').map(r => { const o = {}; h.forEach((k, i) => o[k] = r[i] instanceof Date ? Utilities.formatDate(r[i], TZ, 'yyyy-MM-dd') : r[i]); return o; });
 }
-function append(nome, o) { ss().getSheetByName(nome).appendRow(COLS[nome].map(k => o[k] === undefined ? '' : o[k])); }
+function append(nome, o) { delete MEMO_[nome]; ss().getSheetByName(nome).appendRow(COLS[nome].map(k => o[k] === undefined ? '' : o[k])); }
 function updateById(nome, id, o) {
+  delete MEMO_[nome];
   const sh = ss().getSheetByName(nome); const v = sh.getDataRange().getValues(); const h = v[0];
   for (let r = 1; r < v.length; r++) if (v[r][0] === id) { Object.keys(o).forEach(k => { const c = h.indexOf(k); if (c >= 0) sh.getRange(r + 1, c + 1).setValue(o[k]); }); return; }
   throw new Error('Registro não encontrado.');
 }
 function cfg(k) { const r = rows('Config').find(x => x.chave === k); return r ? r.valor : ''; }
-function setCfg(k, v) { const sh = ss().getSheetByName('Config'); const vals = sh.getDataRange().getValues();
+function setCfg(k, v) { delete MEMO_['Config']; const sh = ss().getSheetByName('Config'); const vals = sh.getDataRange().getValues();
   for (let r = 1; r < vals.length; r++) if (vals[r][0] === k) { sh.getRange(r + 1, 2).setValue(v); return; } sh.appendRow([k, v]); }
 function batidasDe(funcId, ym) { return rows('Batidas').filter(b => b.funcId === funcId && (!ym || String(b.data).indexOf(ym) === 0)).map(front); }
 function front(b) { return { id: b.id, funcId: b.funcId, nome: b.nome, data: String(b.data), hora: String(b.hora).length > 5 ? Utilities.formatDate(new Date(b.hora), TZ, 'HH:mm') : String(b.hora), ts: +b.ts, tipo: b.tipo, localId: b.localId, lat: +b.lat, lng: +b.lng, acc: +b.precisao, dist: +b.distancia, selfieId: b.selfieId, hash: b.hash, status: b.status || 'ok' }; }

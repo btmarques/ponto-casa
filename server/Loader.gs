@@ -16,7 +16,7 @@ function servidor_() {
     const r = UrlFetchApp.fetch(FONTE_CODIGO + '?t=' + Date.now(), { muteHttpExceptions: true });
     if (r.getResponseCode() !== 200) throw new Error('Não consegui baixar o código do servidor (' + r.getResponseCode() + ').');
     codigo = r.getContentText();
-    try { cache.put('codigo', codigo, 300); } catch (e) {}
+    try { cache.put('codigo', codigo, 600); } catch (e) {}
   }
   const exporta = NOMES.map(n => n + ': typeof ' + n + " === 'function' ? " + n + ' : undefined').join(', ');
   SRV_ = new Function(codigo + '\nreturn {' + exporta + '};')();

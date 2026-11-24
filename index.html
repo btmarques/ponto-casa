@@ -305,6 +305,7 @@ const Demo = {
         db.batidas.push(b); this.save(db); return b;
       }
       case "myPunches": { const f = auth(); return db.batidas.filter(b=>b.funcId===f.id && b.data.startsWith(p.ym)).map(b=>({...b,selfie:null})); }
+      case "inicio": { return {punches: await this.call("myPunches",p), info: await this.call("myInfo",p)}; }
       case "myInfo": { const f = auth(); return {func:this.pub(f), tol:db.admin.tolerancia, exigirSelfie:!!db.admin.exigirSelfie, confirmacoes:db.confirmacoes.filter(c=>c.funcId===f.id)}; }
       case "confirm": { const f = auth(); if(!(p.ym < ymNow())) throw new Error("Só dá para confirmar um mês já encerrado.");
         const ult = db.confirmacoes.filter(c=>c.funcId===f.id&&c.ym===p.ym).at(-1); if(ult && ult.acao!=="contestado") return ult;
@@ -335,6 +336,16 @@ const DEMO = !API_URL;
 /* ================= ESTADO ================= */
 const S = { sess: store.get("pt_sess"), view: "inicio", ym: ymNow(), adminPin: null, adm: null, admTab:"hoje", admFunc:null, admYm: ymNow(), flow:null };
 
+/* ================= RAPIDEZ: mostra o último dado na hora e atualiza em seguida ================= */
+const carregando = `<div class="card" style="margin-top:20px"><p class="mute">Carregando…</p></div>`;
+async function swr(key, buscar, mostrar){
+  const seq = S.seq; const k = "c_"+key; const c = store.get(k);
+  if(c) mostrar(c); else $("#app").innerHTML = carregando;
+  const d = await buscar();
+  if(seq !== S.seq || S.flow || $("#sheet").classList.contains("open")) { store.set(k,d); return; }
+  if(JSON.stringify(d) !== JSON.stringify(c)){ store.set(k,d); mostrar(d); }
+}
+
 /* ================= TELAS: FUNCIONÁRIA ================= */
 function tabs(){
   const t = S.adminPin ? [["empregador-hoje","Hoje"],["empregador-espelho","Espelho"],["empregador-cadastro","Cadastro"],["empregador-sistema","Sistema"]]
@@ -342,7 +353,9 @@ function tabs(){
   $("#tabs").innerHTML = t.map(([h,l])=>`<a href="#${h}" class="${location.hash.slice(1)===h || (!location.hash && h==="inicio")?"on":""}">${l}</a>`).join("");
 }
 async function viewLogin(){
-  let fs = []; try{ fs = await api("listFuncs"); }catch(e){ return err(e); }
+  return swr("funcs", ()=>api("listFuncs"), telaLogin);
+}
+function telaLogin(fs){
   $("#app").innerHTML = `
   <div class="card" style="margin-top:20px">
     <h1>Ponto da casa</h1>
@@ -392,7 +405,10 @@ function pushBind(externalId){
 
 async function viewInicio(){
   if(!S.sess) return viewLogin();
-  let bs=[], info; try{ [bs,info] = await Promise.all([api("myPunches",{funcId:S.sess.funcId,token:S.sess.token,ym:ymNow()}), api("myInfo",{funcId:S.sess.funcId,token:S.sess.token})]); }catch(e){ return sessErr(e); }
+  try{ await swr("inicio_"+S.sess.funcId, ()=>api("inicio",{funcId:S.sess.funcId,token:S.sess.token,ym:ymNow()}).catch(async e=>{ if(!/desconhecida/.test(e.message)) throw e; const [punches,info] = await Promise.all([api("myPunches",{funcId:S.sess.funcId,token:S.sess.token,ym:ymNow()}), api("myInfo",{funcId:S.sess.funcId,token:S.sess.token})]); return {punches,info}; }), telaInicio); }catch(e){ return sessErr(e); }
+}
+function telaInicio(d){
+  const bs = d.punches, info = d.info;
   S.exigirSelfie = !!info.exigirSelfie;
   const hoje = dayKey(Date.now()); const hj = bs.filter(b=>b.data===hoje && b.status!=="recusada").sort((a,b)=>a.ts-b.ts);
   const prox = tipoDe(hj.length);
@@ -408,7 +424,7 @@ async function viewInicio(){
   <p class="small mute" style="text-align:center">O app confere sozinho se você está no local de trabalho${S.exigirSelfie?" e pede uma selfie":""}.</p>
   ${pushCard(S.sess.funcId,"Lembretes se você esquecer de bater a entrada ou a saída, e aviso para conferir o mês.")}`;
   pushBind(S.sess.funcId); pushInit(S.sess.funcId);
-  $("#bater").onclick = startFlow; $("#sair").onclick = ()=>{ store.del("pt_sess"); S.sess=null; route(); };
+  $("#bater").onclick = startFlow; $("#sair").onclick = ()=>{ store.del("pt_sess"); store.del("c_inicio_"+S.sess.funcId); S.sess=null; route(); };
   tick();
 }
 function tick(){ const c = $("#clk"); if(!c) return; c.textContent = hm(Date.now());
@@ -533,7 +549,10 @@ async function viewAdminLogin(){
 }
 async function loadAdm(ym, desde){ S.adm = await api("adminAll",{adminPin:S.adminPin, ym, desde}); if(!S.admFunc) S.admFunc = S.adm.funcs[0]?.id; return S.adm; }
 async function viewAdmHoje(){
-  const hoje = dayKey(Date.now()); const A = await loadAdm(null, addDias(hoje,-7));
+  return swr("adm_hoje", ()=>api("adminAll",{adminPin:S.adminPin, desde:addDias(dayKey(Date.now()),-7)}), A=>{ S.adm = A; if(!S.admFunc) S.admFunc = A.funcs[0]?.id; telaAdmHoje(A); });
+}
+function telaAdmHoje(A){
+  const hoje = dayKey(Date.now());
   const pend = A.batidas.filter(b=>b.status==="pendente").sort((a,b)=>b.ts-a.ts);
   const RA = refAlerta(A.funcs, A.batidas, A.admin.tolerancia, A.admin.alertaDia);
   const sem = A.funcs.filter(f=>f.ativo).map(f=>({f, s:semana(f, A.batidas, A.admin.tolerancia, RA.ref)}));
@@ -672,7 +691,8 @@ function alertBox(m){ $("#panel").innerHTML = `<p>${esc(m)}</p><button class="bi
 $("#sheet").onclick = e => { if(e.target.id==="sheet" && !S.flow) $("#sheet").classList.remove("open"); };
 let publicoCarregado = false;
 async function route(){
-  if(!DEMO && !publicoCarregado){ publicoCarregado = true; try{ const c = await api("publico"); if(c && c.pushAppId) PUSH_APP = c.pushAppId; }catch(e){} }
+  S.seq = (S.seq||0) + 1;
+  if(!DEMO && !publicoCarregado){ publicoCarregado = true; api("publico").then(c=>{ if(c && c.pushAppId) PUSH_APP = c.pushAppId; }).catch(()=>{}); }
   const h = location.hash.slice(1) || "inicio";
   $("#banner").classList.toggle("hide", !DEMO);
   if(h.startsWith("empregador") && h!=="empregador" && !S.adminPin){ location.hash="#empregador"; return; }
