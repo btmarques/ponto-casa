@@ -59,7 +59,8 @@ function setup() {
 }
 
 /* ===================== API ===================== */
-function doGet() { return json({ ok: true, data: 'Ponto da Casa — servidor ativo' }); }
+const VERSAO_SERVIDOR = '2026-11-24.3';
+function doGet() { return json({ ok: true, data: 'Ponto da Casa — servidor ativo', versao: VERSAO_SERVIDOR, carregador: true }); }
 // Ajusta os gatilhos sozinho quando o código muda (sem ninguém abrir o Apps Script)
 const GATILHOS_VERSAO = '2';
 function garantirGatilhos_() {
