@@ -248,8 +248,8 @@ const Demo = {
       admin:{pin:"1234", tolerancia:10, empregador:"", cpfEmpregador:"", exigirSelfie:false, alertaDia:4, alertaHora:18, email:""},
       locais:[{id:"casa",nome:"Casa principal",endereco:"Endereço a definir — Franco da Rocha/SP",lat:-23.3217,lng:-46.7266,raio:100}],
       funcs:[
-        {id:"f1",nome:"Funcionária 1",cpf:"",cargo:"Empregada doméstica",localId:"casa",pin:"1111",device:null,ativo:true,jornada:jPad},
-        {id:"f2",nome:"Funcionária 2",cpf:"",cargo:"Empregada doméstica",localId:"casa",pin:"2222",device:null,ativo:true,jornada:j2}],
+        {id:"f1",nome:"Funcionária 1",cpf:"",cargo:"Funcionária",localId:"casa",pin:"1111",device:null,ativo:true,jornada:jPad},
+        {id:"f2",nome:"Funcionária 2",cpf:"",cargo:"Funcionária",localId:"casa",pin:"2222",device:null,ativo:true,jornada:j2}],
       batidas:[], confirmacoes:[]
     };
     // histórico fictício: mês passado e este mês até ontem
@@ -335,7 +335,7 @@ const DEMO = !API_URL;
 /* ================= ESTADO ================= */
 const S = { sess: store.get("pt_sess"), view: "inicio", ym: ymNow(), adminPin: null, adm: null, admTab:"hoje", admFunc:null, admYm: ymNow(), flow:null };
 
-/* ================= TELAS: EMPREGADA ================= */
+/* ================= TELAS: FUNCIONÁRIA ================= */
 function tabs(){
   const t = S.adminPin ? [["empregador-hoje","Hoje"],["empregador-espelho","Espelho"],["empregador-cadastro","Cadastro"],["empregador-sistema","Sistema"]]
     : [["inicio","Ponto"],["mes","Meu mês"],["empregador","Empregador"]];
@@ -568,7 +568,7 @@ async function viewAdmEspelho(){
     ${kpis(E.tot)}
     <p class="small mute">Noturno convertido em hora reduzida (52m30s): ${mm(E.tot.notReduz)}. ${E.tot.alertas?`<b>${E.tot.alertas} dia(s) com alerta</b> — veja a coluna Obs.`:"Sem alertas."}</p>
     ${tabela(E,true)}
-    <p class="small" style="margin-top:12px">${conf?(conf.acao==="contestado"?`<span class="tag bad">Contestado pela empregada</span> em ${new Intl.DateTimeFormat("pt-BR",{timeZone:TZ,dateStyle:"short",timeStyle:"short"}).format(new Date(conf.ts))}: “${esc(conf.motivo)}”`:`<span class="tag ok">Confirmado pela empregada</span> em ${new Intl.DateTimeFormat("pt-BR",{timeZone:TZ,dateStyle:"short",timeStyle:"short"}).format(new Date(conf.ts))} · comprovante ${esc(String(conf.hash).slice(0,12))}${conf.ip?` · IP ${esc(conf.ip)}`:""}`):(S.admYm<ymNow()?`<span class="tag warn">Aguardando confirmação da empregada</span>`:`<span class="tag">Mês em andamento</span>`)}</p>
+    <p class="small" style="margin-top:12px">${conf?(conf.acao==="contestado"?`<span class="tag bad">Contestado pela funcionária</span> em ${new Intl.DateTimeFormat("pt-BR",{timeZone:TZ,dateStyle:"short",timeStyle:"short"}).format(new Date(conf.ts))}: “${esc(conf.motivo)}”`:`<span class="tag ok">Confirmado pela funcionária</span> em ${new Intl.DateTimeFormat("pt-BR",{timeZone:TZ,dateStyle:"short",timeStyle:"short"}).format(new Date(conf.ts))} · comprovante ${esc(String(conf.hash).slice(0,12))}${conf.ip?` · IP ${esc(conf.ip)}`:""}`):(S.admYm<ymNow()?`<span class="tag warn">Aguardando confirmação da funcionária</span>`:`<span class="tag">Mês em andamento</span>`)}</p>
   </div>
   <div class="row noprint"><button id="xl">Baixar Excel</button><button id="pdf">Imprimir / PDF</button><button id="cp">Copiar tabela</button></div>
   <p class="msg noprint" id="xm"></p>`;
@@ -612,7 +612,7 @@ async function viewAdmCadastro(){
 }
 function funcForm(f,A){ return `<form style="margin-top:8px">
   <label>Nome completo</label><input name="nome" value="${esc(f.nome||"")}" autocomplete="off">
-  <div class="row"><div><label>CPF</label><input name="cpf" inputmode="numeric" value="${esc(f.cpf||"")}"></div><div><label>Cargo</label><input name="cargo" value="${esc(f.cargo||"Empregada doméstica")}"></div></div>
+  <div class="row"><div><label>CPF</label><input name="cpf" inputmode="numeric" value="${esc(f.cpf||"")}"></div><div><label>Cargo</label><input name="cargo" value="${esc(f.cargo||"Funcionária")}"></div></div>
   <div class="row"><div><label>Local de trabalho</label><select name="localId">${A.locais.map(l=>`<option value="${esc(l.id)}" ${l.id===f.localId?"selected":""}>${esc(l.nome)}</option>`).join("")}</select></div>
   <div><label>${f.id?"Novo PIN (deixe vazio p/ manter)":"PIN (4 a 6 números)"}</label><input name="pin" inputmode="numeric" maxlength="6" autocomplete="off"></div></div>
   <label>Jornada contratada</label>${jorEditor(f)}
