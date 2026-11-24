@@ -60,8 +60,19 @@ function setup() {
 
 /* ===================== API ===================== */
 function doGet() { return json({ ok: true, data: 'Ponto da Casa — servidor ativo' }); }
+// Ajusta os gatilhos sozinho quando o código muda (sem ninguém abrir o Apps Script)
+const GATILHOS_VERSAO = '2';
+function garantirGatilhos_() {
+  if (P.getProperty('GATILHOS_V') === GATILHOS_VERSAO) return;
+  const ts = ScriptApp.getProjectTriggers();
+  ts.filter(t => t.getHandlerFunction() === 'lembretes').forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('lembretes').timeBased().everyMinutes(5).create(); // também mantém o servidor "acordado"
+  if (!ts.some(t => t.getHandlerFunction() === 'fecharMesAnterior')) ScriptApp.newTrigger('fecharMesAnterior').timeBased().onMonthDay(1).atHour(6).inTimezone(TZ).create();
+  if (!ts.some(t => t.getHandlerFunction() === 'alertaSemanal')) instalarAlertaSemanal();
+  P.setProperty('GATILHOS_V', GATILHOS_VERSAO);
+}
 function doPost(e) {
-  try {
+  try { try { garantirGatilhos_(); } catch (x) {}
     const p = JSON.parse(e.postData.contents);
     return json({ ok: true, data: rota(p.action, p) });
   } catch (err) {
