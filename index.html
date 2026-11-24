@@ -362,21 +362,22 @@ async function viewLogin(){
     catch(x){ $("#lm").textContent = x.message; } };
 }
 /* ================= NOTIFICAÇÕES ================= */
-const PUSH_OK = !DEMO && !!ONESIGNAL_APP_ID;
+let PUSH_APP = ONESIGNAL_APP_ID;
+const pushOk = () => !DEMO && !!PUSH_APP;
 const instalado = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
 let pushPronto = null;
 function pushInit(externalId){
-  if(!PUSH_OK) return Promise.resolve(null);
+  if(!pushOk()) return Promise.resolve(null);
   if(!pushPronto) pushPronto = new Promise(ok=>{ window.OneSignalDeferred = window.OneSignalDeferred || [];
-    OneSignalDeferred.push(async OS=>{ try{ await OS.init({appId:ONESIGNAL_APP_ID, serviceWorkerPath:"OneSignalSDKWorker.js", serviceWorkerParam:{scope:"./"}}); ok(OS); }catch(e){ ok(null); } });
+    OneSignalDeferred.push(async OS=>{ try{ await OS.init({appId:PUSH_APP, serviceWorkerPath:"OneSignalSDKWorker.js", serviceWorkerParam:{scope:"./"}}); ok(OS); }catch(e){ ok(null); } });
     loadScript("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js").catch(()=>ok(null)); });
   return pushPronto.then(async OS=>{ if(OS && externalId){ try{ await OS.login(externalId); }catch(e){} } return OS; });
 }
 function pushCard(externalId, quem){
-  const off = !PUSH_OK ? (DEMO ? "Na versão instalada no celular, o app manda avisos como um app normal." : "Notificações ainda não configuradas.")
+  const off = !pushOk() ? (DEMO ? "Na versão instalada no celular, o app manda avisos como um app normal." : "Notificações ainda não configuradas.")
     : (ehIOS && !instalado() ? "Para receber avisos, instale o app: no Safari, toque em Compartilhar › Adicionar à Tela de Início, e abra pelo ícone." : "");
-  const ativo = PUSH_OK && typeof Notification!=="undefined" && Notification.permission==="granted";
+  const ativo = pushOk() && typeof Notification!=="undefined" && Notification.permission==="granted";
   return `<div class="card" id="pushCard"><div class="row" style="justify-content:space-between"><h3 style="flex:0 1 auto">Avisos no celular</h3>${ativo?`<span class="tag ok" style="flex:0 0 auto">ativados</span>`:""}</div>
     <p class="small mute">${quem}</p>${off?`<p class="small">${off}</p>`:(ativo?"":`<button class="primary" id="pushOn" style="width:100%">Ativar avisos</button>`)}<p class="msg" id="pushMsg"></p></div>`;
 }
@@ -642,6 +643,9 @@ async function viewAdmSistema(){
     <label>Novo PIN do empregador (vazio = manter)</label><input name="newPin" type="password" inputmode="numeric" maxlength="8">
     <p class="msg" id="sm"></p><button class="primary">Salvar</button></form>
   ${pushCard("empregador","Alerta semanal de horas, batidas para aprovar e fechamento do mês. Ative neste celular (o seu).")}
+  ${DEMO?"":`<form class="card" id="fpush"><h3>Chaves do OneSignal</h3><p class="small mute">${A.admin.pushAppId?"Configurado. Para trocar, preencha de novo.":"Cole aqui o App ID e a REST API Key da sua conta OneSignal."}</p>
+    <label>App ID</label><input name="appId" autocomplete="off" value="${esc(A.admin.pushAppId||"")}"><label>REST API Key</label><input name="key" type="password" autocomplete="off" placeholder="${A.admin.pushKey?"(já salva)":""}">
+    <p class="msg" id="pm"></p><button class="primary">Salvar chaves</button></form>`}
   <div class="card"><h3>Como as batidas são protegidas</h3>
     <ul class="small" style="padding-left:18px;margin:8px 0 0">
       <li>Só aceita dentro do raio do endereço. Com GPS impreciso, a batida entra marcada para sua aprovação.</li>
@@ -653,6 +657,7 @@ async function viewAdmSistema(){
   <div class="card"><h3>Situação</h3><p class="small mute">${DEMO?"Modo demonstração: tudo fica só neste aparelho. Ao conectar ao servidor do Google, os dados passam a ficar na sua planilha do Drive.":"Conectado ao servidor do Google."} · versão ${VERSION}</p>
   ${DEMO?`<button id="rd">Recomeçar demonstração</button>`:""}</div>`;
   pushBind("empregador");
+  const fp = $("#fpush"); if(fp) fp.onsubmit = async e => { e.preventDefault(); try{ await api("setPush",{adminPin:S.adminPin,appId:fp.appId.value,key:fp.key.value}); PUSH_APP = fp.appId.value.trim(); $("#pm").textContent="Chaves salvas. Agora toque em Ativar avisos."; }catch(x){ $("#pm").textContent=x.message; } };
   $("#fs").onsubmit = async e => { e.preventDefault(); const g = n => e.target.querySelector(`[name=${n}]`);
     const cfg = {empregador:g("empregador").value.trim(),cpfEmpregador:g("cpfEmpregador").value.trim(),tolerancia:Math.max(0,parseInt(g("tolerancia").value)||0),exigirSelfie:g("exigirSelfie").checked,alertaDia:+g("alertaDia").value,alertaHora:+g("alertaHora").value,email:g("email").value.trim()};
     if(g("newPin").value) cfg.newPin = g("newPin").value;
@@ -665,7 +670,9 @@ function err(e){ $("#app").innerHTML = `<div class="card"><h2>Algo deu errado</h
 function sessErr(e){ store.del("pt_sess"); S.sess=null; err(e); }
 function alertBox(m){ $("#panel").innerHTML = `<p>${esc(m)}</p><button class="big" id="ax">OK</button>`; $("#sheet").classList.add("open"); $("#ax").onclick=()=>$("#sheet").classList.remove("open"); }
 $("#sheet").onclick = e => { if(e.target.id==="sheet" && !S.flow) $("#sheet").classList.remove("open"); };
+let publicoCarregado = false;
 async function route(){
+  if(!DEMO && !publicoCarregado){ publicoCarregado = true; try{ const c = await api("publico"); if(c && c.pushAppId) PUSH_APP = c.pushAppId; }catch(e){} }
   const h = location.hash.slice(1) || "inicio";
   $("#banner").classList.toggle("hide", !DEMO);
   if(h.startsWith("empregador") && h!=="empregador" && !S.adminPin){ location.hash="#empregador"; return; }
