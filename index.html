@@ -383,7 +383,7 @@ let pushPronto = null;
 function pushInit(externalId){
   if(!pushOk()) return Promise.resolve(null);
   if(!pushPronto) pushPronto = new Promise(ok=>{ window.OneSignalDeferred = window.OneSignalDeferred || [];
-    OneSignalDeferred.push(async OS=>{ try{ await OS.init({appId:PUSH_APP, serviceWorkerPath:"OneSignalSDKWorker.js", serviceWorkerParam:{scope:"./"}}); ok(OS); }catch(e){ ok(null); } });
+    OneSignalDeferred.push(async OS=>{ try{ const base = location.pathname.replace(/[^/]*$/,""); await OS.init({appId:PUSH_APP, serviceWorkerPath:base.slice(1)+"OneSignalSDKWorker.js", serviceWorkerParam:{scope:base}}); ok(OS); }catch(e){ ok(null); } });
     loadScript("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js").catch(()=>ok(null)); });
   return pushPronto.then(async OS=>{ if(OS && externalId){ try{ await OS.login(externalId); }catch(e){} } return OS; });
 }
