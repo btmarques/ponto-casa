@@ -72,7 +72,20 @@ function garantirGatilhos_() {
   if (!ts.some(t => t.getHandlerFunction() === 'alertaSemanal')) instalarAlertaSemanal();
   P.setProperty('GATILHOS_V', GATILHOS_VERSAO);
 }
+// Deixa um arquivo "Status do servidor" no Drive (Arquivos do Claude) para o Claude conferir sem acessar o Apps Script
+function status_(origem) {
+  try {
+    const agora = Date.now(), chave = 'STATUS_' + origem;
+    if (agora - (+P.getProperty(chave) || 0) < 10 * 60000) return;
+    P.setProperty(chave, String(agora));
+    const linhas = ['versao=' + VERSAO_SERVIDOR];
+    ['app', 'gatilho'].forEach(o => { const t = +P.getProperty('STATUS_' + o) || 0; linhas.push(o + '=' + (t ? Utilities.formatDate(new Date(t), TZ, 'yyyy-MM-dd HH:mm') : 'nunca')); });
+    const pasta = DriveApp.getFolderById(PASTA_ARQUIVOS_CLAUDE); const it = pasta.getFilesByName('Status do servidor.txt');
+    if (it.hasNext()) it.next().setContent(linhas.join('\n')); else pasta.createFile('Status do servidor.txt', linhas.join('\n'));
+  } catch (e) {}
+}
 function doPost(e) {
+  status_('app');
   try { try { garantirGatilhos_(); } catch (x) {}
     const p = JSON.parse(e.postData.contents);
     return json({ ok: true, data: rota(p.action, p) });
@@ -298,6 +311,7 @@ function push(ids, titulo, texto) {
 }
 // Roda a cada 15 min: lembra a funcionária que esqueceu a entrada ou a saída (uma vez por dia cada aviso).
 function lembretes() {
+  status_('gatilho');
   const agora = new Date(); const hoje = Utilities.formatDate(agora, TZ, 'yyyy-MM-dd'); const min = toMin(Utilities.formatDate(agora, TZ, 'HH:mm'));
   const dow = +Utilities.formatDate(agora, TZ, 'u') % 7; // 1=seg … 7=dom → 0=dom
   let log = {}; try { log = JSON.parse(P.getProperty('LEMBRETES') || '{}'); } catch (e) {}
