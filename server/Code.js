@@ -112,6 +112,7 @@ function rota(a, p) {
     case 'saveLocal': return saveLocal(p);
     case 'review': { admin(p); updateById('Batidas', p.id, { status: p.aprovar ? 'aprovada' : 'recusada', revisadoEm: Date.now() }); return true; }
     case 'saveAdmin': return saveAdmin(p);
+    case 'testePush': { admin(p); if (!P.getProperty('ONESIGNAL_KEY')) throw new Error('Salve as chaves do OneSignal primeiro.'); push(['empregador'], 'Ponto da Casa', 'Aviso de teste: as notificações estão funcionando.'); return true; }
     case 'publico': return { pushAppId: P.getProperty('ONESIGNAL_APP_ID') || '' };
     case 'setPush': { admin(p); if (!p.appId || !p.key) throw new Error('Informe o App ID e a REST API Key.'); configurarNotificacoes(String(p.appId).trim(), String(p.key).trim()); return true; }
   }
