@@ -84,8 +84,23 @@ function status_(origem) {
     if (it.hasNext()) it.next().setContent(linhas.join('\n')); else pasta.createFile('Status do servidor.txt', linhas.join('\n'));
   } catch (e) {}
 }
+// Ajustes pontuais nos dados, feitos uma vez só (pedidos do Bruno)
+function migracoes_() {
+  const feitas = (P.getProperty('MIGRACOES') || '').split(',');
+  const marca = id => { feitas.push(id); P.setProperty('MIGRACOES', feitas.filter(Boolean).join(',')); };
+  if (feitas.indexOf('daiana-moema') < 0) {
+    const d = rows('Funcionarias').find(f => /daiana/i.test(String(f.nome)));
+    const moema = rows('Locais').find(l => /moema/i.test(String(l.nome)));
+    if (d && moema) {
+      updateById('Funcionarias', d.id, { localId: moema.id });
+      const casa = rows('Locais').find(l => l.id === 'casa');
+      if (casa && !rows('Funcionarias').some(f => f.localId === 'casa')) deleteById('Locais', 'casa');
+      marca('daiana-moema');
+    }
+  }
+}
 function doPost(e) {
-  status_('app');
+  status_('app'); try { migracoes_(); } catch (x) {}
   try { try { garantirGatilhos_(); } catch (x) {}
     const p = JSON.parse(e.postData.contents);
     return json({ ok: true, data: rota(p.action, p) });
@@ -313,7 +328,7 @@ function push(ids, titulo, texto) {
 }
 // Roda a cada 15 min: lembra a funcionária que esqueceu a entrada ou a saída (uma vez por dia cada aviso).
 function lembretes() {
-  status_('gatilho');
+  status_('gatilho'); try { migracoes_(); } catch (x) {}
   const agora = new Date(); const hoje = Utilities.formatDate(agora, TZ, 'yyyy-MM-dd'); const min = toMin(Utilities.formatDate(agora, TZ, 'HH:mm'));
   const dow = +Utilities.formatDate(agora, TZ, 'u') % 7; // 1=seg … 7=dom → 0=dom
   let log = {}; try { log = JSON.parse(P.getProperty('LEMBRETES') || '{}'); } catch (e) {}
