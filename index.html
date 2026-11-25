@@ -368,12 +368,13 @@ function telaLogin(fs){
       <select id="lf">${fs.map(f=>`<option value="${esc(f.id)}">${esc(f.nome)}</option>`).join("")}</select>
       <label for="lp">Seu PIN</label>
       <input id="lp" class="pin" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off">
-      <p id="lm" class="msg bad"></p>
+      <p id="lm" class="msg bad">${esc(S.avisoLogin||"")}</p>
       <button class="primary big" type="submit">Entrar</button>
     </form>
     ${DEMO?`<p class="small mute">Demonstração: PIN 1111 (Funcionária 1) ou 2222 (Funcionária 2).</p>`:""}
   </div>`;
   $("#fl").onsubmit = async e => { e.preventDefault();
+    S.avisoLogin = "";
     try{ const r = await api("login",{funcId:$("#lf").value,pin:$("#lp").value.replace(/\D/g,"")}); S.sess = {funcId:r.func.id,token:r.token,nome:r.func.nome,local:r.local||null}; store.set("pt_sess",S.sess); route(); }
     catch(x){ $("#lm").textContent = x.message; } };
 }
@@ -728,7 +729,9 @@ async function viewAdmSistema(){
 /* ================= ROTEADOR ================= */
 function avisaErro(onde, e){ if(DEMO) return; try{ api("logCliente",{funcId:S.sess?.funcId||"",onde,erro:String(e&&e.message||e)}).catch(()=>{}); }catch(x){} }
 function err(e){ avisaErro("tela", e);  $("#app").innerHTML = `<div class="card"><h2>Algo deu errado</h2><p class="msg bad">${esc(e.message)}</p><button id="rt">Tentar de novo</button></div>`; $("#rt").onclick=route; }
-function sessErr(e){ store.del("pt_sess"); S.sess=null; err(e); }
+function sessErr(e){ store.del("pt_sess"); S.sess=null;
+  if(/Sessão expirada/.test(e.message)){ avisaErro("sessao", e); S.avisoLogin = "Entre de novo com o seu PIN."; tabs(); return viewLogin(); }
+  err(e); }
 function alertBox(m){ $("#panel").innerHTML = `<p>${esc(m)}</p><button class="big" id="ax">OK</button>`; $("#sheet").classList.add("open"); $("#ax").onclick=()=>$("#sheet").classList.remove("open"); }
 $("#sheet").onclick = e => { if(e.target.id==="sheet" && !S.flow) $("#sheet").classList.remove("open"); };
 let publicoCarregado = false;

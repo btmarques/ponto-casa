@@ -59,7 +59,7 @@ function setup() {
 }
 
 /* ===================== API ===================== */
-const VERSAO_SERVIDOR = '2026-11-25.2';
+const VERSAO_SERVIDOR = '2026-11-25.3';
 function doGet() { return json({ ok: true, data: 'Ponto da Casa — servidor ativo', versao: VERSAO_SERVIDOR, carregador: true }); }
 // Ajusta os gatilhos sozinho quando o código muda (sem ninguém abrir o Apps Script)
 const GATILHOS_VERSAO = '2';
@@ -161,8 +161,9 @@ function login(p) {
   const f = rows('Funcionarias').find(x => x.id === p.funcId);
   if (!f || !isTrue(f.ativo) || f.pinHash !== hashPin(p.pin)) throw new Error('PIN incorreto.');
   if (f.deviceId && f.deviceId !== p.device) throw new Error('Este celular não é o cadastrado para você. Peça ao empregador para liberar o novo celular.');
-  const token = rnd(24);
-  updateById('Funcionarias', f.id, { deviceId: p.device, token: token });
+  // Mesmo celular entrando de novo (outra aba, app reinstalado): reaproveita a sessão em vez de derrubar a anterior
+  const token = (f.deviceId === p.device && f.token) ? String(f.token) : rnd(24);
+  if (token !== f.token || f.deviceId !== p.device) updateById('Funcionarias', f.id, { deviceId: p.device, token: token });
   f.token = token; f.deviceId = p.device;
   const loc = rows('Locais').find(l => l.id === f.localId);
   return { token: token, func: pub(f), local: loc ? { id: loc.id, nome: loc.nome, lat: num(loc.lat), lng: num(loc.lng), raio: num(loc.raio) || 100 } : null };
