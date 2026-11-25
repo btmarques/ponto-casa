@@ -626,16 +626,27 @@ async function viewAdmCadastro(){
     if(!box.dataset.fid && !func.pin){ fm.querySelector(".msg").textContent="Defina um PIN para ela."; return; }
     try{ await api("saveFunc",{adminPin:S.adminPin,func}); viewAdmCadastro(); }catch(x){ fm.querySelector(".msg").textContent=x.message; } });
   document.querySelectorAll("[data-reset]").forEach(b=>b.onclick=async()=>{ await api("resetDevice",{adminPin:S.adminPin,funcId:b.dataset.reset}); viewAdmCadastro(); });
+  const geocode = async end => { const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q="+encodeURIComponent(end)); const j = await r.json(); return j.length ? {lat:+(+j[0].lat).toFixed(6), lng:+(+j[0].lon).toFixed(6)} : null; };
+  const mapa = (fm,la,lo) => { fm.querySelector("[data-mapa]").innerHTML = `<a href="https://www.google.com/maps?q=${la},${lo}" target="_blank" rel="noopener">Conferir o pino no mapa</a>`; };
   document.querySelectorAll("[data-aqui]").forEach(b=>b.onclick=()=>{ const fm = b.closest("form"), m = fm.querySelector(".msg");
     if(!navigator.geolocation){ m.textContent="Este navegador não fornece localização."; return; }
     b.disabled = true; m.textContent = "Buscando a localização…";
-    navigator.geolocation.getCurrentPosition(p=>{ fm.querySelector("[name=lat]").value = p.coords.latitude.toFixed(6); fm.querySelector("[name=lng]").value = p.coords.longitude.toFixed(6);
+    navigator.geolocation.getCurrentPosition(p=>{ fm.querySelector("[name=lat]").value = p.coords.latitude.toFixed(6); fm.querySelector("[name=lng]").value = p.coords.longitude.toFixed(6); fm.dataset.gps = "1"; mapa(fm, p.coords.latitude.toFixed(6), p.coords.longitude.toFixed(6));
         m.textContent = `Localização preenchida (precisão ±${Math.round(p.coords.accuracy)} m). Confira e toque em Salvar.`; b.disabled = false; },
       e=>{ m.textContent = e.code===1 ? "Localização bloqueada. No iPhone: Ajustes › Privacidade › Serviços de Localização › Safari › Permitir." : "Não consegui a localização. Tente de novo perto de uma janela."; b.disabled = false; },
       {enableHighAccuracy:true, timeout:20000, maximumAge:0}); });
   document.querySelectorAll("[data-lid] form").forEach(fm=>fm.onsubmit=async e=>{ e.preventDefault(); const box = fm.closest("[data-lid]"); const g = n => fm.querySelector(`[name=${n}]`);
     const local = {id:box.dataset.lid||undefined,nome:g("nome").value.trim(),endereco:g("endereco").value.trim(),lat:parseFloat(g("lat").value),lng:parseFloat(g("lng").value),raio:parseInt(g("raio").value)||100};
-    if(!local.nome || isNaN(local.lat) || isNaN(local.lng)){ fm.querySelector(".msg").textContent="Preencha nome, latitude e longitude."; return; }
+    const m = fm.querySelector(".msg"); const antigo = (S.adm.locais.find(l=>l.id===local.id)||{}).endereco || "";
+    if(!local.nome){ m.textContent="Dê um nome ao local."; return; }
+    const usouGPS = fm.dataset.gps === "1";
+    if(!usouGPS && local.endereco && (local.endereco !== antigo || isNaN(local.lat) || isNaN(local.lng))){
+      if(local.endereco.length < 8){ m.textContent="Escreva o endereço completo: rua, número, bairro e cidade."; return; }
+      m.textContent = "Encontrando o endereço no mapa…";
+      try{ const c = await geocode(local.endereco); if(!c){ m.textContent = "Não encontrei esse endereço. Confira a escrita (rua, número, bairro, cidade) e salve de novo."; return; } local.lat = c.lat; local.lng = c.lng; }
+      catch(x){ m.textContent = "Não consegui buscar o endereço agora. Tente salvar de novo."; return; }
+    }
+    if(isNaN(local.lat) || isNaN(local.lng)){ m.textContent="Escreva o endereço completo para o app achar a localização."; return; }
     try{ await api("saveLocal",{adminPin:S.adminPin,local}); viewAdmCadastro(); }catch(x){ fm.querySelector(".msg").textContent=x.message; } });
 }
 function funcForm(f,A){ return `<form style="margin-top:8px">
@@ -651,8 +662,9 @@ function localForm(l){ return `<form style="margin-top:8px">
   <label>Nome</label><input name="nome" value="${esc(l.nome||"")}">
   <label>Endereço</label><input name="endereco" value="${esc(l.endereco||"")}">
   <div class="row"><div><label>Latitude</label><input name="lat" inputmode="decimal" value="${l.lat??""}"></div><div><label>Longitude</label><input name="lng" inputmode="decimal" value="${l.lng??""}"></div><div><label>Raio (m)</label><input name="raio" inputmode="numeric" value="${l.raio??100}"></div></div>
-  <button type="button" data-aqui style="width:100%;margin-top:10px">Estou na casa: usar a localização deste celular</button>
-  <p class="small mute">Ou, no Google Maps, segure o dedo sobre a casa e copie os dois números que aparecem.</p>
+  <button type="button" data-aqui style="width:100%;margin-top:10px">Opcional: estou na casa, usar a localização deste celular</button>
+  <p class="small" data-mapa>${l.lat!=null&&l.lat!==""?`<a href="https://www.google.com/maps?q=${l.lat},${l.lng}" target="_blank" rel="noopener">Conferir o pino no mapa</a>`:""}</p>
+  <p class="small mute">Ao salvar, o app acha a localização pelo endereço sozinho. Depois confira o pino no mapa; se estiver fora da casa, me avise.</p>
   <p class="msg bad"></p>
   <div class="row"><button class="primary">Salvar</button></div></form>`; }
 async function viewAdmSistema(){
