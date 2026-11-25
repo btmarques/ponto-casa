@@ -59,7 +59,7 @@ function setup() {
 }
 
 /* ===================== API ===================== */
-const VERSAO_SERVIDOR = '2026-11-24.3';
+const VERSAO_SERVIDOR = '2026-11-25.1';
 function doGet() { return json({ ok: true, data: 'Ponto da Casa — servidor ativo', versao: VERSAO_SERVIDOR, carregador: true }); }
 // Ajusta os gatilhos sozinho quando o código muda (sem ninguém abrir o Apps Script)
 const GATILHOS_VERSAO = '2';
@@ -129,7 +129,7 @@ function login(p) {
   updateById('Funcionarias', f.id, { deviceId: p.device, token: token });
   f.token = token; f.deviceId = p.device;
   const loc = rows('Locais').find(l => l.id === f.localId);
-  return { token: token, func: pub(f), local: loc ? { id: loc.id, nome: loc.nome, lat: +loc.lat, lng: +loc.lng, raio: +loc.raio || 100 } : null };
+  return { token: token, func: pub(f), local: loc ? { id: loc.id, nome: loc.nome, lat: num(loc.lat), lng: num(loc.lng), raio: num(loc.raio) || 100 } : null };
 }
 function auth(p) {
   const f = rows('Funcionarias').find(x => x.id === p.funcId);
@@ -144,7 +144,7 @@ function punch(p) {
     if (!loc) throw new Error('Nenhum local de trabalho cadastrado para você.');
     const lat = +p.lat, lng = +p.lng, acc = +p.acc || 0;
     if (!isFinite(lat) || !isFinite(lng)) throw new Error('Localização não recebida.');
-    const dist = distM(lat, lng, +loc.lat, +loc.lng), raio = +loc.raio || 100;
+    const dist = distM(lat, lng, num(loc.lat), num(loc.lng)), raio = num(loc.raio) || 100;
     let status;
     if (dist <= raio + Math.min(acc, 50)) status = 'ok';
     else if (acc > 60 && dist - acc <= raio) status = 'pendente'; // GPS impreciso: empregador aprova
@@ -158,7 +158,7 @@ function punch(p) {
     const todas = rows('Batidas');
     const hoje = todas.filter(b => b.funcId === f.id && b.data === data && b.status !== 'recusada');
     const ult = hoje[hoje.length - 1];
-    if (ult && ts - (+ult.ts) < 120000) throw new Error('Você acabou de bater o ponto. Aguarde 2 minutos.');
+    if (ult && ts - num(ult.ts) < 120000) throw new Error('Você acabou de bater o ponto. Aguarde 2 minutos.');
     const n = hoje.length;
     const tipo = n < 4 ? TIPOS[n] : (n % 2 === 0 ? 'Entrada (extra)' : 'Saída (extra)');
     const id = Utilities.getUuid();
@@ -213,7 +213,7 @@ function adminAll(p) {
     const x = front(b); if (b.data === hoje && b.selfieId) x.selfie = selfieData(b.selfieId); return x; });
   return {
     admin: { pushAppId: P.getProperty('ONESIGNAL_APP_ID') || '', pushKey: P.getProperty('ONESIGNAL_KEY') ? 'configurada' : '', tolerancia: +cfg('tolerancia') || 0, exigirSelfie: isTrue(cfg('exigirSelfie')), alertaDia: +cfg('alertaDia') || 4, alertaHora: +cfg('alertaHora') || 18, email: String(cfg('email') || ''), empregador: cfg('empregador'), cpfEmpregador: cfg('cpfEmpregador') },
-    locais: rows('Locais').map(l => ({ id: l.id, nome: l.nome, endereco: l.endereco, lat: +l.lat, lng: +l.lng, raio: +l.raio })),
+    locais: rows('Locais').map(l => ({ id: l.id, nome: l.nome, endereco: l.endereco, lat: num(l.lat), lng: num(l.lng), raio: num(l.raio) })),
     funcs: rows('Funcionarias').map(f => Object.assign(pub(f), { device: f.deviceId || null })),
     batidas: bs,
     confirmacoes: rows('Confirmacoes')
@@ -222,7 +222,7 @@ function adminAll(p) {
 function saveFunc(p) {
   admin(p);
   const f = p.func;
-  const o = { nome: f.nome, cpf: f.cpf, cargo: f.cargo, localId: f.localId, ativo: !!f.ativo, jornada: JSON.stringify(f.jornada || {}) };
+  const o = { nome: f.nome, cpf: f.cpf, cargo: /empregad/i.test(String(f.cargo || '')) ? 'Funcionária' : f.cargo, localId: f.localId, ativo: !!f.ativo, jornada: JSON.stringify(f.jornada || {}) };
   if (f.pin) { if (!/^\d{4,6}$/.test(f.pin)) throw new Error('O PIN precisa ter de 4 a 6 números.'); o.pinHash = hashPin(f.pin); }
   if (f.id && rows('Funcionarias').some(x => x.id === f.id)) updateById('Funcionarias', f.id, o);
   else { if (!f.pin) throw new Error('Defina um PIN.'); o.id = 'f' + rnd(6); append('Funcionarias', o); }
@@ -231,7 +231,7 @@ function saveFunc(p) {
 function saveLocal(p) {
   admin(p);
   const l = p.local;
-  const o = { nome: l.nome, endereco: l.endereco, lat: +l.lat, lng: +l.lng, raio: +l.raio || 100 };
+  const o = { nome: l.nome, endereco: l.endereco, lat: num(l.lat), lng: num(l.lng), raio: num(l.raio) || 100 };
   if (l.id && rows('Locais').some(x => x.id === l.id)) updateById('Locais', l.id, o);
   else { o.id = 'l' + rnd(6); append('Locais', o); }
   return true;
@@ -428,11 +428,11 @@ function rows(nome) {
   const v = ss().getSheetByName(nome).getDataRange().getValues(); const h = v.shift();
   return MEMO_[nome] = v.filter(r => r.join('') !== '').map(r => { const o = {}; h.forEach((k, i) => o[k] = r[i] instanceof Date ? Utilities.formatDate(r[i], TZ, 'yyyy-MM-dd') : r[i]); return o; });
 }
-function append(nome, o) { delete MEMO_[nome]; ss().getSheetByName(nome).appendRow(COLS[nome].map(k => o[k] === undefined ? '' : o[k])); }
+function append(nome, o) { delete MEMO_[nome]; ss().getSheetByName(nome).appendRow(COLS[nome].map(k => o[k] === undefined ? '' : (typeof o[k] === 'number' ? String(o[k]) : o[k]))); }
 function updateById(nome, id, o) {
   delete MEMO_[nome];
   const sh = ss().getSheetByName(nome); const v = sh.getDataRange().getValues(); const h = v[0];
-  for (let r = 1; r < v.length; r++) if (v[r][0] === id) { Object.keys(o).forEach(k => { const c = h.indexOf(k); if (c >= 0) sh.getRange(r + 1, c + 1).setValue(o[k]); }); return; }
+  for (let r = 1; r < v.length; r++) if (v[r][0] === id) { Object.keys(o).forEach(k => { const c = h.indexOf(k); if (c >= 0) sh.getRange(r + 1, c + 1).setValue(typeof o[k] === 'number' ? String(o[k]) : o[k]); }); return; }
   throw new Error('Registro não encontrado.');
 }
 function deleteById(nome, id) {
@@ -445,10 +445,11 @@ function cfg(k) { const r = rows('Config').find(x => x.chave === k); return r ? 
 function setCfg(k, v) { delete MEMO_['Config']; const sh = ss().getSheetByName('Config'); const vals = sh.getDataRange().getValues();
   for (let r = 1; r < vals.length; r++) if (vals[r][0] === k) { sh.getRange(r + 1, 2).setValue(v); return; } sh.appendRow([k, v]); }
 function batidasDe(funcId, ym) { return rows('Batidas').filter(b => b.funcId === funcId && (!ym || String(b.data).indexOf(ym) === 0)).map(front); }
-function front(b) { return { id: b.id, funcId: b.funcId, nome: b.nome, data: String(b.data), hora: String(b.hora).length > 5 ? Utilities.formatDate(new Date(b.hora), TZ, 'HH:mm') : String(b.hora), ts: +b.ts, tipo: b.tipo, localId: b.localId, lat: +b.lat, lng: +b.lng, acc: +b.precisao, dist: +b.distancia, selfieId: b.selfieId, hash: b.hash, status: b.status || 'ok' }; }
+function front(b) { return { id: b.id, funcId: b.funcId, nome: b.nome, data: String(b.data), hora: String(b.hora).length > 5 ? Utilities.formatDate(new Date(b.hora), TZ, 'HH:mm') : String(b.hora), ts: num(b.ts), tipo: b.tipo, localId: b.localId, lat: num(b.lat), lng: num(b.lng), acc: num(b.precisao), dist: num(b.distancia), selfieId: b.selfieId, hash: b.hash, status: b.status || 'ok' }; }
 function pub(f) { let j = {}; try { j = JSON.parse(f.jornada || '{}'); } catch (e) {} return { id: f.id, nome: f.nome, cpf: String(f.cpf || ''), cargo: f.cargo, localId: f.localId, ativo: isTrue(f.ativo), jornada: j }; }
 
 /* ===================== UTIL ===================== */
+function num(v) { if (typeof v === 'number') return v; const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isNaN(n) ? NaN : n; }
 function isTrue(v) { return v === true || v === 'TRUE' || v === 'true'; }
 function rnd(n) { let s = ''; while (s.length < n) s += Utilities.getUuid().replace(/-/g, ''); return s.slice(0, n); }
 function sha256(t) { return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, t, Utilities.Charset.UTF_8).map(b => ('0' + ((b + 256) % 256).toString(16)).slice(-2)).join(''); }
