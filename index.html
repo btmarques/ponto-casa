@@ -352,7 +352,7 @@ async function swr(key, buscar, mostrar){
 /* ================= TELAS: FUNCIONÁRIA ================= */
 function tabs(){
   const t = S.adminPin ? [["empregador-hoje","Hoje"],["empregador-espelho","Espelho"],["empregador-cadastro","Cadastro"],["empregador-sistema","Sistema"]]
-    : [["inicio","Ponto"],["mes","Meu mês"],["empregador","Empregador"]];
+    : S.sess ? [["inicio","Ponto"],["mes","Meu mês"]] : [["inicio","Ponto"],["empregador","Empregador"]];
   $("#tabs").innerHTML = t.map(([h,l])=>`<a href="#${h}" class="${location.hash.slice(1)===h || (!location.hash && h==="inicio")?"on":""}">${l}</a>`).join("");
 }
 async function viewLogin(){
