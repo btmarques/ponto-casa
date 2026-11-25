@@ -129,6 +129,7 @@ function rota(a, p) {
     case 'saveAdmin': return saveAdmin(p);
     case 'testePush': { admin(p); if (!P.getProperty('ONESIGNAL_KEY')) throw new Error('Salve as chaves do OneSignal primeiro.'); push(['empregador'], 'Ponto da Casa', 'Aviso de teste: as notificações estão funcionando.'); return true; }
     case 'deleteLocal': { admin(p); if (rows('Funcionarias').some(f => f.localId === p.localId && isTrue(f.ativo))) throw new Error('Há funcionária ligada a este local. Troque o local dela antes de excluir.'); deleteById('Locais', p.localId); return true; }
+    case 'changePin': { const f = auth(p); if (f.pinHash !== hashPin(p.atual)) throw new Error('PIN atual incorreto.'); if (!/^\d{4,6}$/.test(String(p.novo || ''))) throw new Error('O PIN novo precisa ter de 4 a 6 números.'); updateById('Funcionarias', f.id, { pinHash: hashPin(p.novo) }); return true; }
     case 'publico': return { pushAppId: P.getProperty('ONESIGNAL_APP_ID') || '' };
     case 'setPush': { admin(p); if (!p.appId || !p.key) throw new Error('Informe o App ID e a REST API Key.'); configurarNotificacoes(String(p.appId).trim(), String(p.key).trim()); return true; }
   }

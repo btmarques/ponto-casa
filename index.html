@@ -321,6 +321,7 @@ const Demo = {
       case "resetDevice": { admin(); const f = func(p.funcId); f.device=null; f.token=null; this.save(db); return true; }
       case "saveLocal": { admin(); const i = db.locais.findIndex(l=>l.id===p.local.id); const l = {...(db.locais[i]||{}),...p.local}; if(!l.id) l.id="l"+rnd(6); if(i<0) db.locais.push(l); else db.locais[i]=l; this.save(db); return l; }
       case "deleteLocal": { admin(); if(db.funcs.some(f=>f.localId===p.localId&&f.ativo)) throw new Error("Há funcionária ligada a este local. Troque o local dela antes de excluir."); db.locais = db.locais.filter(l=>l.id!==p.localId); this.save(db); return true; }
+      case "changePin": { const f = auth(); if(f.pin !== String(p.atual||"")) throw new Error("PIN atual incorreto."); if(!/^\d{4,6}$/.test(String(p.novo||""))) throw new Error("O PIN novo precisa ter de 4 a 6 números."); f.pin = String(p.novo); this.save(db); return true; }
       case "review": { admin(); const b = db.batidas.find(x=>x.id===p.id); b.status = p.aprovar ? "aprovada" : "recusada"; b.revisadoEm = Date.now(); this.save(db); return true; }
       case "saveAdmin": { admin(); Object.assign(db.admin, p.cfg); if(p.cfg.newPin) { db.admin.pin = p.cfg.newPin; delete db.admin.newPin; } this.save(db); return true; }
       case "resetDemo": { store.del(this.key); return true; }
@@ -426,6 +427,18 @@ function telaInicio(d){
   <p class="small mute" style="text-align:center">O app confere sozinho se você está no local de trabalho${S.exigirSelfie?" e pede uma selfie":""}.</p>
   ${pushCard(S.sess.funcId,"Lembretes se você esquecer de bater a entrada ou a saída, e aviso para conferir o mês.")}`;
   pushBind(S.sess.funcId); pushInit(S.sess.funcId);
+  $("#app").insertAdjacentHTML("beforeend", `<p style="text-align:center"><button class="ghost" id="trocaPin" style="min-height:40px;font-size:14px">Trocar meu PIN</button></p>`);
+  $("#trocaPin").onclick = () => {
+    $("#panel").innerHTML = `<h2>Trocar meu PIN</h2><form id="fpin"><label for="pa">PIN atual</label><input id="pa" class="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+      <label for="pn">PIN novo (4 a 6 números)</label><input id="pn" class="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+      <label for="pn2">Repita o PIN novo</label><input id="pn2" class="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+      <p class="msg bad" id="pm2"></p><button class="primary big">Salvar PIN novo</button></form><button class="big ghost" id="pcx" style="margin-top:8px">Cancelar</button>`;
+    $("#sheet").classList.add("open"); $("#pcx").onclick = () => $("#sheet").classList.remove("open");
+    $("#fpin").onsubmit = async e => { e.preventDefault(); const n = $("#pn").value;
+      if(n !== $("#pn2").value){ $("#pm2").textContent = "Os dois PINs novos não são iguais."; return; }
+      try{ await api("changePin",{funcId:S.sess.funcId,token:S.sess.token,atual:$("#pa").value,novo:n}); $("#panel").innerHTML = `<h2>PIN trocado</h2><p>Use o PIN novo da próxima vez que entrar.</p><button class="primary big" id="pok">OK</button>`; $("#pok").onclick = () => $("#sheet").classList.remove("open"); }
+      catch(x){ $("#pm2").textContent = /desconhecida/.test(x.message) ? "Ainda não disponível. Tente de novo em 10 minutos." : x.message; } };
+  };
   $("#bater").onclick = startFlow; $("#sair").onclick = ()=>{ store.del("pt_sess"); store.del("c_inicio_"+S.sess.funcId); S.sess=null; route(); };
   tick();
 }
