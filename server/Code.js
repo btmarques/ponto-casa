@@ -98,6 +98,11 @@ function migracoes_() {
       marca('daiana-moema');
     }
   }
+  if (feitas.indexOf('liberar-andrea-1') < 0) {
+    const a = rows('Funcionarias').find(f => /andrea/i.test(String(f.nome)));
+    if (a && a.deviceId === '7f1b0022-4dca-462b-a745-7ef7d3d03209') updateById('Funcionarias', a.id, { deviceId: '', token: '' });
+    marca('liberar-andrea-1');
+  }
   if (feitas.indexOf('cargo-funcionaria') < 0) {
     rows('Funcionarias').filter(f => /empregad/i.test(String(f.cargo || ''))).forEach(f => updateById('Funcionarias', f.id, { cargo: 'Funcionária' }));
     marca('cargo-funcionaria');
