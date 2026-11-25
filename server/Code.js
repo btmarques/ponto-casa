@@ -98,6 +98,10 @@ function migracoes_() {
       marca('daiana-moema');
     }
   }
+  if (feitas.indexOf('cargo-funcionaria') < 0) {
+    rows('Funcionarias').filter(f => /empregad/i.test(String(f.cargo || ''))).forEach(f => updateById('Funcionarias', f.id, { cargo: 'Funcionária' }));
+    marca('cargo-funcionaria');
+  }
 }
 function doPost(e) {
   status_('app'); try { migracoes_(); } catch (x) {}
