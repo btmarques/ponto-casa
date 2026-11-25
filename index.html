@@ -320,6 +320,7 @@ const Demo = {
         if(i<0) db.funcs.push(f); else db.funcs[i]=f; this.save(db); return f; }
       case "resetDevice": { admin(); const f = func(p.funcId); f.device=null; f.token=null; this.save(db); return true; }
       case "saveLocal": { admin(); const i = db.locais.findIndex(l=>l.id===p.local.id); const l = {...(db.locais[i]||{}),...p.local}; if(!l.id) l.id="l"+rnd(6); if(i<0) db.locais.push(l); else db.locais[i]=l; this.save(db); return l; }
+      case "deleteLocal": { admin(); if(db.funcs.some(f=>f.localId===p.localId&&f.ativo)) throw new Error("Há funcionária ligada a este local. Troque o local dela antes de excluir."); db.locais = db.locais.filter(l=>l.id!==p.localId); this.save(db); return true; }
       case "review": { admin(); const b = db.batidas.find(x=>x.id===p.id); b.status = p.aprovar ? "aprovada" : "recusada"; b.revisadoEm = Date.now(); this.save(db); return true; }
       case "saveAdmin": { admin(); Object.assign(db.admin, p.cfg); if(p.cfg.newPin) { db.admin.pin = p.cfg.newPin; delete db.admin.newPin; } this.save(db); return true; }
       case "resetDemo": { store.del(this.key); return true; }
@@ -626,6 +627,9 @@ async function viewAdmCadastro(){
     if(!box.dataset.fid && !func.pin){ fm.querySelector(".msg").textContent="Defina um PIN para ela."; return; }
     try{ await api("saveFunc",{adminPin:S.adminPin,func}); viewAdmCadastro(); }catch(x){ fm.querySelector(".msg").textContent=x.message; } });
   document.querySelectorAll("[data-reset]").forEach(b=>b.onclick=async()=>{ await api("resetDevice",{adminPin:S.adminPin,funcId:b.dataset.reset}); viewAdmCadastro(); });
+  document.querySelectorAll("[data-dellocal]").forEach(b=>b.onclick=async()=>{ const m = b.closest("form").querySelector(".msg");
+    if(b.dataset.ok!=="1"){ b.dataset.ok="1"; b.textContent="Toque de novo para confirmar"; return; }
+    try{ await api("deleteLocal",{adminPin:S.adminPin,localId:b.dataset.dellocal}); viewAdmCadastro(); }catch(x){ m.textContent = /desconhecida/.test(x.message) ? "O servidor ainda está pegando a versão nova. Tente em 10 minutos." : x.message; b.dataset.ok=""; b.textContent="Excluir local"; } });
   const geocode = async end => { const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q="+encodeURIComponent(end)); const j = await r.json(); return j.length ? {lat:+(+j[0].lat).toFixed(6), lng:+(+j[0].lon).toFixed(6)} : null; };
   const mapa = (fm,la,lo) => { fm.querySelector("[data-mapa]").innerHTML = `<a href="https://www.google.com/maps?q=${la},${lo}" target="_blank" rel="noopener">Conferir o pino no mapa</a>`; };
   document.querySelectorAll("[data-aqui]").forEach(b=>b.onclick=()=>{ const fm = b.closest("form"), m = fm.querySelector(".msg");
@@ -639,8 +643,9 @@ async function viewAdmCadastro(){
     const local = {id:box.dataset.lid||undefined,nome:g("nome").value.trim(),endereco:g("endereco").value.trim(),lat:parseFloat(g("lat").value),lng:parseFloat(g("lng").value),raio:parseInt(g("raio").value)||100};
     const m = fm.querySelector(".msg"); const antigo = (S.adm.locais.find(l=>l.id===local.id)||{}).endereco || "";
     if(!local.nome){ m.textContent="Dê um nome ao local."; return; }
+    if(!local.endereco && !usouGPS){ m.textContent="Escreva o endereço completo: rua, número, bairro e cidade."; return; }
     const usouGPS = fm.dataset.gps === "1";
-    if(!usouGPS && local.endereco && (local.endereco !== antigo || isNaN(local.lat) || isNaN(local.lng))){
+    if(!usouGPS && local.endereco){
       if(local.endereco.length < 8){ m.textContent="Escreva o endereço completo: rua, número, bairro e cidade."; return; }
       m.textContent = "Encontrando o endereço no mapa…";
       try{ const c = await geocode(local.endereco); if(!c){ m.textContent = "Não encontrei esse endereço. Confira a escrita (rua, número, bairro, cidade) e salve de novo."; return; } local.lat = c.lat; local.lng = c.lng; }
@@ -661,12 +666,13 @@ function funcForm(f,A){ return `<form style="margin-top:8px">
 function localForm(l){ return `<form style="margin-top:8px">
   <label>Nome</label><input name="nome" value="${esc(l.nome||"")}">
   <label>Endereço</label><input name="endereco" value="${esc(l.endereco||"")}">
-  <div class="row"><div><label>Latitude</label><input name="lat" inputmode="decimal" value="${l.lat??""}"></div><div><label>Longitude</label><input name="lng" inputmode="decimal" value="${l.lng??""}"></div><div><label>Raio (m)</label><input name="raio" inputmode="numeric" value="${l.raio??100}"></div></div>
+  <input type="hidden" name="lat" value="${l.lat??""}"><input type="hidden" name="lng" value="${l.lng??""}">
+  <label>Raio de tolerância (metros)</label><input name="raio" inputmode="numeric" value="${l.raio??100}">
   <button type="button" data-aqui style="width:100%;margin-top:10px">Opcional: estou na casa, usar a localização deste celular</button>
   <p class="small" data-mapa>${l.lat!=null&&l.lat!==""?`<a href="https://www.google.com/maps?q=${l.lat},${l.lng}" target="_blank" rel="noopener">Conferir o pino no mapa</a>`:""}</p>
   <p class="small mute">Ao salvar, o app acha a localização pelo endereço sozinho. Depois confira o pino no mapa; se estiver fora da casa, me avise.</p>
   <p class="msg bad"></p>
-  <div class="row"><button class="primary">Salvar</button></div></form>`; }
+  <div class="row"><button class="primary">Salvar</button>${l.id?`<button type="button" data-dellocal="${esc(l.id)}">Excluir local</button>`:""}</div></form>`; }
 async function viewAdmSistema(){
   const A = await loadAdm(ymNow());
   $("#app").innerHTML = `<h1 style="margin-top:8px">Sistema</h1>

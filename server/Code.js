@@ -113,6 +113,7 @@ function rota(a, p) {
     case 'review': { admin(p); updateById('Batidas', p.id, { status: p.aprovar ? 'aprovada' : 'recusada', revisadoEm: Date.now() }); return true; }
     case 'saveAdmin': return saveAdmin(p);
     case 'testePush': { admin(p); if (!P.getProperty('ONESIGNAL_KEY')) throw new Error('Salve as chaves do OneSignal primeiro.'); push(['empregador'], 'Ponto da Casa', 'Aviso de teste: as notificações estão funcionando.'); return true; }
+    case 'deleteLocal': { admin(p); if (rows('Funcionarias').some(f => f.localId === p.localId && isTrue(f.ativo))) throw new Error('Há funcionária ligada a este local. Troque o local dela antes de excluir.'); deleteById('Locais', p.localId); return true; }
     case 'publico': return { pushAppId: P.getProperty('ONESIGNAL_APP_ID') || '' };
     case 'setPush': { admin(p); if (!p.appId || !p.key) throw new Error('Informe o App ID e a REST API Key.'); configurarNotificacoes(String(p.appId).trim(), String(p.key).trim()); return true; }
   }
@@ -432,6 +433,12 @@ function updateById(nome, id, o) {
   delete MEMO_[nome];
   const sh = ss().getSheetByName(nome); const v = sh.getDataRange().getValues(); const h = v[0];
   for (let r = 1; r < v.length; r++) if (v[r][0] === id) { Object.keys(o).forEach(k => { const c = h.indexOf(k); if (c >= 0) sh.getRange(r + 1, c + 1).setValue(o[k]); }); return; }
+  throw new Error('Registro não encontrado.');
+}
+function deleteById(nome, id) {
+  delete MEMO_[nome];
+  const sh = ss().getSheetByName(nome); const v = sh.getDataRange().getValues();
+  for (let r = 1; r < v.length; r++) if (v[r][0] === id) { sh.deleteRow(r + 1); return; }
   throw new Error('Registro não encontrado.');
 }
 function cfg(k) { const r = rows('Config').find(x => x.chave === k); return r ? r.valor : ''; }
