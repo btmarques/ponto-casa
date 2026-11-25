@@ -513,7 +513,7 @@ async function sendPunch(){
       <p class="hash">Comprovante nº ${esc(r.id.slice(0,8))} · código ${esc(r.hash.slice(0,16))}</p>
       <button class="primary big" id="fdone">Pronto</button></div>`;
     $("#fdone").onclick = ()=>{ closeFlow(); route(); };
-  }catch(x){ f.err.final = x.message; drawFlow(); }
+  }catch(x){ f.err.final = x.message; avisaErro("batida", x); drawFlow(); }
 }
 
 /* ---------- meu mês ---------- */
@@ -726,7 +726,8 @@ async function viewAdmSistema(){
 }
 
 /* ================= ROTEADOR ================= */
-function err(e){ $("#app").innerHTML = `<div class="card"><h2>Algo deu errado</h2><p class="msg bad">${esc(e.message)}</p><button id="rt">Tentar de novo</button></div>`; $("#rt").onclick=route; }
+function avisaErro(onde, e){ if(DEMO) return; try{ api("logCliente",{funcId:S.sess?.funcId||"",onde,erro:String(e&&e.message||e)}).catch(()=>{}); }catch(x){} }
+function err(e){ avisaErro("tela", e);  $("#app").innerHTML = `<div class="card"><h2>Algo deu errado</h2><p class="msg bad">${esc(e.message)}</p><button id="rt">Tentar de novo</button></div>`; $("#rt").onclick=route; }
 function sessErr(e){ store.del("pt_sess"); S.sess=null; err(e); }
 function alertBox(m){ $("#panel").innerHTML = `<p>${esc(m)}</p><button class="big" id="ax">OK</button>`; $("#sheet").classList.add("open"); $("#ax").onclick=()=>$("#sheet").classList.remove("open"); }
 $("#sheet").onclick = e => { if(e.target.id==="sheet" && !S.flow) $("#sheet").classList.remove("open"); };

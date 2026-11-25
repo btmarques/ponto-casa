@@ -59,7 +59,7 @@ function setup() {
 }
 
 /* ===================== API ===================== */
-const VERSAO_SERVIDOR = '2026-11-25.1';
+const VERSAO_SERVIDOR = '2026-11-25.2';
 function doGet() { return json({ ok: true, data: 'Ponto da Casa — servidor ativo', versao: VERSAO_SERVIDOR, carregador: true }); }
 // Ajusta os gatilhos sozinho quando o código muda (sem ninguém abrir o Apps Script)
 const GATILHOS_VERSAO = '2';
@@ -108,11 +108,21 @@ function migracoes_() {
     marca('cargo-funcionaria');
   }
 }
+// Guarda cada erro numa aba "Log" da planilha, para o Claude ver o que aconteceu sem depender de print
+function logErro_(p, err) {
+  try {
+    let sh = ss().getSheetByName('Log');
+    if (!sh) { sh = ss().insertSheet('Log'); sh.appendRow(['quando', 'acao', 'funcId', 'erro', 'extra']); sh.getRange('A:Z').setNumberFormat('@'); }
+    const extra = p.action === 'punch' ? 'lat ' + p.lat + ' lng ' + p.lng + ' prec ' + Math.round(+p.acc || 0) : '';
+    sh.appendRow([Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss'), String(p.action || ''), String(p.funcId || ''), String(err.message || err), extra]);
+  } catch (e) {}
+}
 function doPost(e) {
   status_('app'); try { migracoes_(); } catch (x) {}
   try { try { garantirGatilhos_(); } catch (x) {}
     const p = JSON.parse(e.postData.contents);
-    return json({ ok: true, data: rota(p.action, p) });
+    try { return json({ ok: true, data: rota(p.action, p) }); }
+    catch (err) { logErro_(p, err); return json({ ok: false, error: String(err.message || err) }); }
   } catch (err) {
     return json({ ok: false, error: String(err.message || err) });
   }
@@ -139,6 +149,7 @@ function rota(a, p) {
     case 'testePush': { admin(p); if (!P.getProperty('ONESIGNAL_KEY')) throw new Error('Salve as chaves do OneSignal primeiro.'); push(['empregador'], 'Ponto da Casa', 'Aviso de teste: as notificações estão funcionando.'); return true; }
     case 'deleteLocal': { admin(p); if (rows('Funcionarias').some(f => f.localId === p.localId && isTrue(f.ativo))) throw new Error('Há funcionária ligada a este local. Troque o local dela antes de excluir.'); deleteById('Locais', p.localId); return true; }
     case 'changePin': { const f = auth(p); if (f.pinHash !== hashPin(p.atual)) throw new Error('PIN atual incorreto.'); if (!/^\d{4,6}$/.test(String(p.novo || ''))) throw new Error('O PIN novo precisa ter de 4 a 6 números.'); updateById('Funcionarias', f.id, { pinHash: hashPin(p.novo) }); return true; }
+    case 'logCliente': { logErro_({ action: 'app:' + String(p.onde || ''), funcId: p.funcId }, { message: String(p.erro || '').slice(0, 300) }); return true; }
     case 'publico': return { pushAppId: P.getProperty('ONESIGNAL_APP_ID') || '' };
     case 'setPush': { admin(p); if (!p.appId || !p.key) throw new Error('Informe o App ID e a REST API Key.'); configurarNotificacoes(String(p.appId).trim(), String(p.key).trim()); return true; }
   }
