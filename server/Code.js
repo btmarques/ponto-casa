@@ -59,7 +59,7 @@ function setup() {
 }
 
 /* ===================== API ===================== */
-const VERSAO_SERVIDOR = '2026-11-25.3';
+const VERSAO_SERVIDOR = '2026-11-26.1';
 function doGet() { return json({ ok: true, data: 'Ponto da Casa — servidor ativo', versao: VERSAO_SERVIDOR, carregador: true }); }
 // Ajusta os gatilhos sozinho quando o código muda (sem ninguém abrir o Apps Script)
 const GATILHOS_VERSAO = '2';
@@ -463,7 +463,7 @@ function ss() { return SS_ || (SS_ = SpreadsheetApp.openById(P.getProperty('SHEE
 function rows(nome) {
   if (MEMO_[nome]) return MEMO_[nome];
   const v = ss().getSheetByName(nome).getDataRange().getValues(); const h = v.shift();
-  return MEMO_[nome] = v.filter(r => r.join('') !== '').map(r => { const o = {}; h.forEach((k, i) => o[k] = r[i] instanceof Date ? Utilities.formatDate(r[i], TZ, 'yyyy-MM-dd') : r[i]); return o; });
+  return MEMO_[nome] = v.filter(r => r.join('') !== '').map(r => { const o = {}; h.forEach((k, i) => o[k] = r[i] instanceof Date ? Utilities.formatDate(r[i], ss().getSpreadsheetTimeZone(), k === 'hora' ? 'HH:mm' : 'yyyy-MM-dd') : r[i]); return o; });
 }
 // Números com casas decimais vão com vírgula: a planilha está em português e lia "-23.59" como milhar
 function celula_(v) { return typeof v === 'number' ? (Number.isInteger(v) ? String(v) : String(v).replace('.', ',')) : v; }
@@ -484,7 +484,8 @@ function cfg(k) { const r = rows('Config').find(x => x.chave === k); return r ? 
 function setCfg(k, v) { delete MEMO_['Config']; const sh = ss().getSheetByName('Config'); const vals = sh.getDataRange().getValues();
   for (let r = 1; r < vals.length; r++) if (vals[r][0] === k) { sh.getRange(r + 1, 2).setValue(v); return; } sh.appendRow([k, v]); }
 function batidasDe(funcId, ym) { return rows('Batidas').filter(b => b.funcId === funcId && (!ym || String(b.data).indexOf(ym) === 0)).map(front); }
-function front(b) { return { id: b.id, funcId: b.funcId, nome: b.nome, data: String(b.data), hora: String(b.hora).length > 5 ? Utilities.formatDate(new Date(b.hora), TZ, 'HH:mm') : String(b.hora), ts: num(b.ts), tipo: b.tipo, localId: b.localId, lat: num(b.lat), lng: num(b.lng), acc: num(b.precisao), dist: num(b.distancia), selfieId: b.selfieId, hash: b.hash, status: b.status || 'ok' }; }
+// Data e hora sempre a partir do carimbo exato (ts): a planilha às vezes converte "09:51" em hora e estraga a leitura
+function front(b) { const t = num(b.ts); return { id: b.id, funcId: b.funcId, nome: b.nome, data: t ? Utilities.formatDate(new Date(t), TZ, 'yyyy-MM-dd') : String(b.data), hora: t ? Utilities.formatDate(new Date(t), TZ, 'HH:mm') : String(b.hora), ts: t, tipo: b.tipo, localId: b.localId, lat: num(b.lat), lng: num(b.lng), acc: num(b.precisao), dist: num(b.distancia), selfieId: b.selfieId, hash: b.hash, status: b.status || 'ok' }; }
 function pub(f) { let j = {}; try { j = JSON.parse(f.jornada || '{}'); } catch (e) {} return { id: f.id, nome: f.nome, cpf: String(f.cpf || ''), cargo: f.cargo, localId: f.localId, ativo: isTrue(f.ativo), jornada: j }; }
 
 /* ===================== UTIL ===================== */
