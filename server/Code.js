@@ -465,11 +465,13 @@ function rows(nome) {
   const v = ss().getSheetByName(nome).getDataRange().getValues(); const h = v.shift();
   return MEMO_[nome] = v.filter(r => r.join('') !== '').map(r => { const o = {}; h.forEach((k, i) => o[k] = r[i] instanceof Date ? Utilities.formatDate(r[i], TZ, 'yyyy-MM-dd') : r[i]); return o; });
 }
-function append(nome, o) { delete MEMO_[nome]; ss().getSheetByName(nome).appendRow(COLS[nome].map(k => o[k] === undefined ? '' : (typeof o[k] === 'number' ? String(o[k]) : o[k]))); }
+// Números com casas decimais vão com vírgula: a planilha está em português e lia "-23.59" como milhar
+function celula_(v) { return typeof v === 'number' ? (Number.isInteger(v) ? String(v) : String(v).replace('.', ',')) : v; }
+function append(nome, o) { delete MEMO_[nome]; ss().getSheetByName(nome).appendRow(COLS[nome].map(k => o[k] === undefined ? '' : celula_(o[k]))); }
 function updateById(nome, id, o) {
   delete MEMO_[nome];
   const sh = ss().getSheetByName(nome); const v = sh.getDataRange().getValues(); const h = v[0];
-  for (let r = 1; r < v.length; r++) if (v[r][0] === id) { Object.keys(o).forEach(k => { const c = h.indexOf(k); if (c >= 0) sh.getRange(r + 1, c + 1).setValue(typeof o[k] === 'number' ? String(o[k]) : o[k]); }); return; }
+  for (let r = 1; r < v.length; r++) if (v[r][0] === id) { Object.keys(o).forEach(k => { const c = h.indexOf(k); if (c >= 0) sh.getRange(r + 1, c + 1).setValuecelula_(o[k]); }); return; }
   throw new Error('Registro não encontrado.');
 }
 function deleteById(nome, id) {
