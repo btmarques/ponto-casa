@@ -146,6 +146,7 @@ const MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","ag
 const DIAS = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
 const ymLabel = ym => { const [y,m] = ym.split("-"); return `${MESES[m-1]} de ${y}`; };
 const ymShift = (ym,d) => { let [y,m] = ym.split("-").map(Number); m += d; while(m<1){m+=12;y--;} while(m>12){m-=12;y++;} return `${y}-${String(m).padStart(2,"0")}`; };
+const ativa = b => b.status!=="recusada" && b.status!=="removida";
 const TIPOS = ["Entrada","Saída p/ almoço","Volta do almoço","Saída"];
 const tipoDe = n => n < 4 ? TIPOS[n] : (n % 2 === 0 ? "Entrada (extra)" : "Saída (extra)");
 function distM(a,b,c,d){ const R=6371000, r=x=>x*Math.PI/180; const dLa=r(c-a), dLo=r(d-b); const h=Math.sin(dLa/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(dLo/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
@@ -168,7 +169,7 @@ function noturno(a,b){ // minutos entre 22:00 e 05:00 dentro de [a,b] (min do di
 function espelho(func, batidas, ym, tol){
   const [Y,M] = ym.split("-").map(Number); const ult = new Date(Y, M, 0).getDate();
   const hoje = dayKey(Date.now());
-  const porDia = {}; batidas.filter(b=>b.funcId===func.id && b.status!=="recusada").forEach(b=>{ (porDia[b.data] ||= []).push(b); });
+  const porDia = {}; batidas.filter(b=>b.funcId===func.id && ativa(b)).forEach(b=>{ (porDia[b.data] ||= []).push(b); });
   const dias = []; const tot = {trab:0,esp:0,extra:0,deb:0,not:0,faltas:0,alertas:0};
   for(let d=1; d<=ult; d++){
     const key = `${ym}-${String(d).padStart(2,"0")}`; const dow = new Date(Y,M-1,d).getDay();
@@ -191,6 +192,7 @@ function espelho(func, batidas, ym, tol){
     } else if(key===hoje && bs.length%2===0 && bs.length>0){ extra=Math.max(0,saldo); }
     if(!j && bs.length) obs.push("dia sem jornada prevista");
     if(bs.some(b=>b.status==="pendente")) obs.push("localização a aprovar");
+    if(bs.some(b=>b.status==="ajuste")) obs.push("ajuste do empregador");
     if(obs.some(o=>o!=="em andamento")) tot.alertas++;
     tot.trab+=trab; if(!futuro) tot.esp+=esp; tot.extra+=extra; tot.deb+=deb; tot.not+=not; if(falta) tot.faltas++;
     dias.push({key,d,dow,j,esp,bs,trab,extra,deb,not,obs,futuro,interv});
@@ -207,7 +209,7 @@ function semana(func, batidas, tol, hojeKey){
   for(let i=0;i<7;i++){
     const key = addDias(seg,i); const d = new Date(key+"T12:00:00-03:00").getUTCDay();
     const esp = esperado(jornadaDia(func,d)); contratado += esp;
-    const bs = batidas.filter(b=>b.funcId===func.id && b.data===key && b.status!=="recusada").sort((a,b)=>a.ts-b.ts);
+    const bs = batidas.filter(b=>b.funcId===func.id && b.data===key && ativa(b)).sort((a,b)=>a.ts-b.ts);
     let t=0; for(let k=0;k+1<bs.length;k+=2){ let a=minOfDay(bs[k].ts), b=minOfDay(bs[k+1].ts); if(b<a) b+=1440; t+=b-a; }
     if(bs.length%2===1 && key===hojeKey){ t += Math.max(0, minOfDay(Date.now())-minOfDay(bs[bs.length-1].ts)); }
     if(key<=hojeKey) trab += t;
@@ -297,7 +299,7 @@ const Demo = {
         const g = avaliaGeo(p.lat,p.lng,p.acc,loc); if(!g.ok) throw new Error(g.msg);
         if(db.admin.exigirSelfie && !p.selfie) throw new Error("Falta a selfie.");
         const ts = Date.now(); const data = dayKey(ts);
-        const meus = db.batidas.filter(b=>b.funcId===f.id && b.data===data && b.status!=="recusada");
+        const meus = db.batidas.filter(b=>b.funcId===f.id && b.data===data && ativa(b));
         const ult = meus[meus.length-1];
         if(ult && ts-ult.ts < 120000) throw new Error("Você acabou de bater o ponto. Aguarde 2 minutos.");
         const prev = db.batidas.length ? db.batidas[db.batidas.length-1].hash : "0";
@@ -322,6 +324,12 @@ const Demo = {
       case "saveLocal": { admin(); const i = db.locais.findIndex(l=>l.id===p.local.id); const l = {...(db.locais[i]||{}),...p.local}; if(!l.id) l.id="l"+rnd(6); if(i<0) db.locais.push(l); else db.locais[i]=l; this.save(db); return l; }
       case "deleteLocal": { admin(); if(db.funcs.some(f=>f.localId===p.localId&&f.ativo)) throw new Error("Há funcionária ligada a este local. Troque o local dela antes de excluir."); db.locais = db.locais.filter(l=>l.id!==p.localId); this.save(db); return true; }
       case "changePin": { const f = auth(); if(f.pin !== String(p.atual||"")) throw new Error("PIN atual incorreto."); if(!/^\d{4,6}$/.test(String(p.novo||""))) throw new Error("O PIN novo precisa ter de 4 a 6 números."); f.pin = String(p.novo); this.save(db); return true; }
+      case "ajusteAdd": { admin(); const f = func(p.funcId); const motivo = String(p.motivo||"").trim(); if(motivo.length<5) throw new Error("Escreva o motivo do ajuste.");
+        const ts = new Date(p.data+"T"+p.hora+":00-03:00").getTime(); if(!(ts>0) || ts>Date.now()) throw new Error("Não dá para lançar marcação no futuro.");
+        const prev = db.batidas.length ? db.batidas[db.batidas.length-1].hash : "0";
+        const b = {id:uid(),funcId:f.id,nome:f.nome,ts,data:p.data,hora:p.hora,tipo:"",localId:f.localId,status:"ajuste",origem:"empregador",motivo,device:"empregador",prev,dist:0,acc:0};
+        b.hash = await sha256([prev,b.id,f.id,ts,"ajuste",motivo].join("|")); db.batidas.push(b); db.batidas.sort((a,b)=>a.ts-b.ts); this.save(db); return b; }
+      case "ajusteRemove": { admin(); const b = db.batidas.find(x=>x.id===p.id); const motivo = String(p.motivo||"").trim(); if(motivo.length<5) throw new Error("Escreva o motivo."); b.status="removida"; b.motivo=motivo; this.save(db); return true; }
       case "review": { admin(); const b = db.batidas.find(x=>x.id===p.id); b.status = p.aprovar ? "aprovada" : "recusada"; b.revisadoEm = Date.now(); this.save(db); return true; }
       case "saveAdmin": { admin(); Object.assign(db.admin, p.cfg); if(p.cfg.newPin) { db.admin.pin = p.cfg.newPin; delete db.admin.newPin; } this.save(db); return true; }
       case "resetDemo": { store.del(this.key); return true; }
@@ -333,7 +341,10 @@ const Demo = {
 const Remote = { async call(action, p){
   const r = await fetch(API_URL, {method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"}, body: JSON.stringify({action, ...p})});
   const j = await r.json(); if(!j.ok) throw new Error(j.error || "Erro no servidor"); return j.data; } };
-const api = (a,p={}) => (API_URL ? Remote : Demo).call(a, {device:DEVICE, ...p});
+// Nome de cada marcação vem da ordem no dia (entrada, almoço, volta, saída), já contando ajustes
+function retipar(list){ const g = {}; list.filter(ativa).sort((a,b)=>a.ts-b.ts).forEach(b=>{ const k = b.funcId+"|"+b.data; g[k] = (g[k]||0); b.tipo = tipoDe(g[k]++); }); return list; }
+const api = async (a,p={}) => { const r = await (API_URL ? Remote : Demo).call(a, {device:DEVICE, ...p});
+  if(r && Array.isArray(r.batidas)) retipar(r.batidas); if(r && Array.isArray(r.punches)) retipar(r.punches); if(a==="myPunches" && Array.isArray(r)) retipar(r); return r; };
 const DEMO = !API_URL;
 
 /* ================= ESTADO ================= */
@@ -414,7 +425,7 @@ async function viewInicio(){
 function telaInicio(d){
   const bs = d.punches, info = d.info;
   S.exigirSelfie = !!info.exigirSelfie;
-  const hoje = dayKey(Date.now()); const hj = bs.filter(b=>b.data===hoje && b.status!=="recusada").sort((a,b)=>a.ts-b.ts);
+  const hoje = dayKey(Date.now()); const hj = bs.filter(b=>b.data===hoje && ativa(b)).sort((a,b)=>a.ts-b.ts);
   const prox = tipoDe(hj.length);
   const linhas = TIPOS.map((t,i)=>{ const b = hj[i]; return `<li class="${b?"done":(i===hj.length?"next":"")}"><span class="dot"></span><span>${t}</span><span class="t">${b?b.hora:"—"}${b&&b.status==="pendente"?` <span class="tag warn">a aprovar</span>`:""}</span></li>`; }).join("")
     + hj.slice(4).map(b=>`<li class="done"><span class="dot"></span><span>${esc(b.tipo)}</span><span class="t">${b.hora}</span></li>`).join("");
@@ -549,10 +560,10 @@ function tabela(E, admin){
   return `<div class="scroll"><table class="stack"><thead><tr><th>Dia</th><th>Marcações</th><th class="n">Trab.</th><th class="n">Extra</th><th class="n">Débito</th><th>Obs.</th></tr></thead><tbody>
   ${E.dias.filter(d=>!d.futuro).map(d=>`<tr class="${d.j?"":"wk"} ${d.obs.filter(o=>o!=="em andamento").length?"alert":""}">
     <td>${String(d.d).padStart(2,"0")} ${DIAS[d.dow]}</td>
-    <td>${d.bs.map(b=>admin&&(b.selfie||b.selfieId)?`<a href="#" data-selfie="${esc(b.id)}">${b.hora}</a>`:b.hora).join(" · ")||(d.j?"—":"folga")}</td>
+    <td>${d.bs.map(b=>(admin&&(b.selfie||b.selfieId)?`<a href="#" data-selfie="${esc(b.id)}">${b.hora}</a>`:b.hora)+(b.status==="ajuste"?"*":"")).join(" · ")||(d.j?"—":"folga")}${admin?` <button class="ghost noprint" data-ajuste="${d.key}" style="min-height:32px;padding:0 10px;font-size:13px">Ajustar</button>`:""}</td>
     <td class="n">${d.trab?mm(d.trab):""}</td><td class="n">${d.extra?mm(d.extra):""}</td><td class="n">${d.deb?mm(d.deb):""}</td>
     <td class="small">${esc(d.obs.join(", "))}</td></tr>`).join("")}
-  </tbody></table></div>`;
+  </tbody></table></div>${E.dias.some(d=>d.bs.some(b=>b.status==="ajuste"))?`<p class="small mute">* marcação incluída pelo empregador, com motivo registrado.</p>`:""}`;
 }
 
 /* ================= TELAS: EMPREGADOR ================= */
@@ -583,7 +594,7 @@ function telaAdmHoje(A){
       <span class="small mute">${mm(s.trab)} de ${mm(s.contratado)} · previsão até domingo ${mm(s.previsto)}${s.estouro>0?` · compensar ${mm(s.estouro)} liberando mais cedo`:""}${s.diasLongos.length?` · ${s.diasLongos.length} dia(s) com +2h extras`:""}</span></div>`; }).join("")}
     <button id="prevAlerta" style="margin-top:12px;width:100%">Ver o alerta desta semana</button></div>
   <p class="date">${new Intl.DateTimeFormat("pt-BR",{timeZone:TZ,weekday:"long",day:"numeric",month:"long"}).format(new Date())}</p>
-  ${A.funcs.filter(f=>f.ativo).map(f=>{ const bs = A.batidas.filter(b=>b.funcId===f.id&&b.data===hoje&&b.status!=="recusada").sort((a,b)=>a.ts-b.ts);
+  ${A.funcs.filter(f=>f.ativo).map(f=>{ const bs = A.batidas.filter(b=>b.funcId===f.id&&b.data===hoje&&ativa(b)).sort((a,b)=>a.ts-b.ts);
     const st = bs.length===0?`<span class="tag warn">Ainda não chegou</span>`:bs.length%2?`<span class="tag ok">Trabalhando</span>`:bs.length>=4?`<span class="tag">Encerrou o dia</span>`:`<span class="tag">No intervalo</span>`;
     return `<div class="card"><div class="row" style="justify-content:space-between"><h3 style="flex:0 1 auto">${esc(f.nome)}</h3><span style="flex:0 0 auto">${st}</span></div>
     ${bs.length?`<ul class="tl" style="padding:6px 0 0">${bs.map(b=>`<li class="done"><span class="dot"></span><span>${esc(b.tipo)}<br><span class="small mute">a ${b.dist} m · GPS ±${b.acc} m${b.status==="pendente"?" · a aprovar":b.status==="aprovada"?" · aprovada":""}</span></span><span class="row" style="flex:none;gap:8px"><span class="t">${b.hora}</span>${b.selfie?`<img class="thumb" style="width:44px;height:44px" src="${b.selfie}" alt="Selfie ${esc(b.tipo)}">`:""}</span></li>`).join("")}</ul>`:`<p class="mute small">Nenhuma marcação hoje.</p>`}</div>`; }).join("")}`;
@@ -614,12 +625,30 @@ async function viewAdmEspelho(){
     if(!b.selfie && b.selfieId){ try{ b.selfie = await api("selfie",{adminPin:S.adminPin,selfieId:b.selfieId}); }catch(x){ return alertBox(x.message); } }
     $("#panel").innerHTML = `<h2>${esc(b.tipo)} · ${b.hora}</h2><p class="mute">${b.data.split("-").reverse().join("/")} · a ${b.dist} m · GPS ±${b.acc} m</p><img src="${b.selfie}" style="width:100%;border-radius:14px" alt="Selfie"><p class="hash">código ${esc(b.hash)}</p><button class="big" id="cx">Fechar</button>`;
     $("#sheet").classList.add("open"); $("#cx").onclick=()=>$("#sheet").classList.remove("open"); });
+  document.querySelectorAll("[data-ajuste]").forEach(bt=>bt.onclick=()=>abrirAjuste(f, bt.dataset.ajuste, A));
   const linhas = () => [["Data","Dia","Marcações","Trabalhado","Previsto","Extra","Débito","Noturno","Obs."], ...E.dias.filter(d=>!d.futuro).map(d=>[d.key.split("-").reverse().join("/"),DIAS[d.dow],d.bs.map(b=>b.hora).join(" "),mm(d.trab),mm(d.esp),mm(d.extra),mm(d.deb),mm(d.not),d.obs.join(", ")]),
     [],["Totais","","",mm(E.tot.trab),mm(E.tot.esp),mm(E.tot.extra),mm(E.tot.deb),mm(E.tot.not),`${E.tot.faltas} falta(s)`]];
   $("#xl").onclick = async ()=>{ try{ await loadScript(LIB.xlsx); const ws = XLSX.utils.aoa_to_sheet(linhas()); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Espelho");
     XLSX.writeFile(wb, `Espelho ${f.nome} ${S.admYm}.xlsx`); $("#xm").textContent="Excel gerado."; }catch(x){ $("#xm").textContent="Não foi possível baixar aqui (na versão final, instalada no celular, funciona)."; } };
   $("#pdf").onclick = ()=>{ try{ window.print(); }catch(x){} setTimeout(()=>{ $("#xm").textContent = "Se a janela de impressão não abriu, é limitação desta prévia — na versão final funciona (Compartilhar › Imprimir › salvar PDF)."; },800); };
   $("#cp").onclick = async ()=>{ try{ await navigator.clipboard.writeText(linhas().map(r=>r.join("\t")).join("\n")); $("#xm").textContent="Tabela copiada — cole no Excel."; }catch(x){ $("#xm").textContent="Não foi possível copiar."; } };
+}
+function abrirAjuste(f, dia, A){
+  const doDia = A.batidas.filter(b=>b.funcId===f.id && b.data===dia).sort((a,b)=>a.ts-b.ts);
+  const dd = dia.split("-").reverse().join("/");
+  $("#panel").innerHTML = `<h2>Ajustar ${dd}</h2><p class="small mute">${esc(f.nome)}. Nada é apagado: tudo fica no histórico e ela recebe um aviso.</p>
+    <ul class="tl" style="padding:0">${doDia.length?doDia.map(b=>`<li class="${ativa(b)?"done":""}"><span class="dot"></span><span>${ativa(b)?esc(b.tipo):`<s>${esc(b.tipo||"marcação")}</s> <span class="small mute">removida: ${esc(b.motivo||"")}</span>`}${b.status==="ajuste"?`<br><span class="small mute">ajuste: ${esc(b.motivo)}</span>`:""}</span><span class="row" style="flex:none;gap:8px"><span class="t">${b.hora}</span>${ativa(b)?`<button class="ghost" data-rem="${esc(b.id)}" style="min-height:32px;padding:0 10px;font-size:13px">Remover</button>`:""}</span></li>`).join(""):`<li><span></span><span class="mute">Nenhuma marcação neste dia.</span><span></span></li>`}</ul>
+    <form id="fadd" class="card" style="margin:12px 0 0"><h3>Incluir marcação</h3>
+      <label for="ah">Horário</label><input id="ah" type="time" required>
+      <label for="am">Motivo</label><input id="am" placeholder="Ex.: esqueceu de bater a entrada" required>
+      <p class="msg bad" id="amsg"></p><button class="primary" style="width:100%">Incluir</button></form>
+    <button class="big ghost" id="ax" style="margin-top:8px">Fechar</button>`;
+  $("#sheet").classList.add("open"); $("#ax").onclick=()=>$("#sheet").classList.remove("open");
+  const msg = t => $("#amsg").textContent = /desconhecida/.test(t) ? "O servidor ainda está pegando a versão nova. Tente em 10 minutos." : t;
+  $("#fadd").onsubmit = async e => { e.preventDefault(); try{ await api("ajusteAdd",{adminPin:S.adminPin,funcId:f.id,data:dia,hora:$("#ah").value,motivo:$("#am").value}); $("#sheet").classList.remove("open"); viewAdmEspelho(); }catch(x){ msg(x.message); } };
+  document.querySelectorAll("[data-rem]").forEach(b=>b.onclick=()=>{ const li = b.closest("li");
+    li.insertAdjacentHTML("afterend", `<li style="display:block"><form data-remf="${esc(b.dataset.rem)}"><label>Motivo para remover</label><input name="m" placeholder="Ex.: batida errada, não estava saindo"><div class="row" style="margin-top:8px"><button class="primary">Confirmar remoção</button></div></form></li>`); b.remove();
+    document.querySelector(`[data-remf="${b.dataset.rem}"]`).onsubmit = async e => { e.preventDefault(); try{ await api("ajusteRemove",{adminPin:S.adminPin,id:e.target.dataset.remf,motivo:e.target.m.value}); $("#sheet").classList.remove("open"); viewAdmEspelho(); }catch(x){ msg(x.message); } }; });
 }
 function jorEditor(f){ const j = f.jornada||{}; return `<div class="jor"><span></span><span></span><span class="small mute">Entrada</span><span class="small mute">Almoço</span><span class="small mute">Volta</span><span class="small mute">Saída</span>
   ${[1,2,3,4,5,6,0].map(d=>{ const v = j[d]||[]; return `<b>${DIAS[d]}</b><input type="checkbox" data-jd="${d}" ${v[0]?"checked":""} aria-label="Trabalha ${DIAS[d]}">${[0,1,2,3].map(i=>`<input type="time" data-jt="${d}-${i}" value="${v[i]||""}">`).join("")}`; }).join("")}</div>`; }

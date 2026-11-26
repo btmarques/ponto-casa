@@ -23,7 +23,7 @@ const TIPOS = ['Entrada', 'Saída p/ almoço', 'Volta do almoço', 'Saída'];
 const COLS = {
   Funcionarias: ['id','nome','cpf','cargo','localId','pinHash','deviceId','token','ativo','jornada'],
   Locais: ['id','nome','endereco','lat','lng','raio'],
-  Batidas: ['id','funcId','nome','data','hora','ts','tipo','localId','lat','lng','precisao','distancia','selfieId','deviceId','hashAnterior','hash','status','revisadoEm'],
+  Batidas: ['id','funcId','nome','data','hora','ts','tipo','localId','lat','lng','precisao','distancia','selfieId','deviceId','hashAnterior','hash','status','revisadoEm','origem','motivo'],
   Confirmacoes: ['funcId','ym','ts','acao','motivo','ip','userAgent','deviceId','hashEspelho','hash','termoId'],
   Config: ['chave','valor']
 };
@@ -59,7 +59,7 @@ function setup() {
 }
 
 /* ===================== API ===================== */
-const VERSAO_SERVIDOR = '2026-11-26.1';
+const VERSAO_SERVIDOR = '2026-11-26.2';
 function doGet() { return json({ ok: true, data: 'Ponto da Casa — servidor ativo', versao: VERSAO_SERVIDOR, carregador: true }); }
 // Ajusta os gatilhos sozinho quando o código muda (sem ninguém abrir o Apps Script)
 const GATILHOS_VERSAO = '2';
@@ -97,6 +97,11 @@ function migracoes_() {
       if (casa && !rows('Funcionarias').some(f => f.localId === 'casa')) deleteById('Locais', 'casa');
       marca('daiana-moema');
     }
+  }
+  if (feitas.indexOf('batidas-colunas-ajuste') < 0) {
+    const sh = ss().getSheetByName('Batidas'); const h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+    ['origem', 'motivo'].forEach(c => { if (h.indexOf(c) < 0) { sh.getRange(1, sh.getLastColumn() + 1).setValue(c).setFontWeight('bold'); } });
+    delete MEMO_['Batidas']; marca('batidas-colunas-ajuste');
   }
   if (feitas.indexOf('liberar-andrea-1') < 0) {
     const a = rows('Funcionarias').find(f => /andrea/i.test(String(f.nome)));
@@ -150,6 +155,8 @@ function rota(a, p) {
     case 'deleteLocal': { admin(p); if (rows('Funcionarias').some(f => f.localId === p.localId && isTrue(f.ativo))) throw new Error('Há funcionária ligada a este local. Troque o local dela antes de excluir.'); deleteById('Locais', p.localId); return true; }
     case 'changePin': { const f = auth(p); if (f.pinHash !== hashPin(p.atual)) throw new Error('PIN atual incorreto.'); if (!/^\d{4,6}$/.test(String(p.novo || ''))) throw new Error('O PIN novo precisa ter de 4 a 6 números.'); updateById('Funcionarias', f.id, { pinHash: hashPin(p.novo) }); return true; }
     case 'logCliente': { logErro_({ action: 'app:' + String(p.onde || ''), funcId: p.funcId }, { message: String(p.erro || '').slice(0, 300) }); return true; }
+    case 'ajusteAdd': return ajusteAdd(p);
+    case 'ajusteRemove': return ajusteRemove(p);
     case 'publico': return { pushAppId: P.getProperty('ONESIGNAL_APP_ID') || '' };
     case 'setPush': { admin(p); if (!p.appId || !p.key) throw new Error('Informe o App ID e a REST API Key.'); configurarNotificacoes(String(p.appId).trim(), String(p.key).trim()); return true; }
   }
@@ -193,7 +200,7 @@ function punch(p) {
     const data = Utilities.formatDate(new Date(ts), TZ, 'yyyy-MM-dd');
     const hora = Utilities.formatDate(new Date(ts), TZ, 'HH:mm');
     const todas = rows('Batidas');
-    const hoje = todas.filter(b => b.funcId === f.id && b.data === data && b.status !== 'recusada');
+    const hoje = todas.filter(b => b.funcId === f.id && b.data === data && ativa_(b));
     const ult = hoje[hoje.length - 1];
     if (ult && ts - num(ult.ts) < 120000) throw new Error('Você acabou de bater o ponto. Aguarde 2 minutos.');
     const n = hoje.length;
@@ -240,6 +247,36 @@ function confirmar(p) {
   return c;
 }
 function hashEspelho(E) { return sha256(JSON.stringify([E.dias.filter(d => !d.futuro).map(d => [d.key, d.bs.map(b => b.hora + ' ' + b.tipo)]), [E.tot.trab, E.tot.extra, E.tot.deb, E.tot.faltas, E.tot.not]])); }
+
+/* ===================== AJUSTES DO EMPREGADOR ===================== */
+// Nada é apagado: marcação incluída fica com status 'ajuste'; removida fica com status 'removida'. Sempre com motivo e aviso à funcionária.
+function ajusteAdd(p) {
+  admin(p); migracoes_();
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const f = rows('Funcionarias').find(x => x.id === p.funcId); if (!f) throw new Error('Funcionária não encontrada.');
+    const data = String(p.data || ''), hora = String(p.hora || ''), motivo = String(p.motivo || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || !/^\d{2}:\d{2}$/.test(hora)) throw new Error('Data ou hora inválida.');
+    if (motivo.length < 5) throw new Error('Escreva o motivo do ajuste.');
+    const ts = new Date(data + 'T' + hora + ':00-03:00').getTime();
+    if (!(ts > 0) || ts > Date.now()) throw new Error('Não dá para lançar marcação no futuro.');
+    const todas = rows('Batidas'); const prev = todas.length ? todas[todas.length - 1].hash : '0'; const id = Utilities.getUuid();
+    const b = { id: id, funcId: f.id, nome: f.nome, data: data, hora: hora, ts: ts, tipo: '', localId: f.localId, lat: '', lng: '', precisao: '', distancia: '', selfieId: '', deviceId: 'empregador', hashAnterior: prev, status: 'ajuste', revisadoEm: Date.now(), origem: 'empregador', motivo: motivo };
+    b.hash = sha256([prev, id, f.id, ts, 'ajuste', motivo].join('|'));
+    append('Batidas', b);
+    push([f.id], 'Ponto — marcação ajustada', 'Foi incluída uma marcação às ' + hora + ' do dia ' + data.split('-').reverse().slice(0, 2).join('/') + '. Motivo: ' + motivo + '. Confira em "Meu mês".');
+    return front(b);
+  } finally { lock.releaseLock(); }
+}
+function ajusteRemove(p) {
+  admin(p); migracoes_();
+  const b = rows('Batidas').find(x => x.id === p.id); if (!b) throw new Error('Marcação não encontrada.');
+  const motivo = String(p.motivo || '').trim(); if (motivo.length < 5) throw new Error('Escreva o motivo.');
+  updateById('Batidas', b.id, { status: 'removida', motivo: motivo, revisadoEm: Date.now() });
+  const fb = front(b);
+  push([b.funcId], 'Ponto — marcação ajustada', 'A marcação das ' + fb.hora + ' do dia ' + fb.data.split('-').reverse().slice(0, 2).join('/') + ' foi desconsiderada. Motivo: ' + motivo + '. Confira em "Meu mês".');
+  return true;
+}
 
 /* ===================== EMPREGADOR ===================== */
 function admin(p) { if (hashPin(p.adminPin) !== cfg('adminPinHash')) throw new Error('PIN do empregador incorreto.'); }
@@ -306,7 +343,7 @@ function semana(func, batidas, tol, hojeKey) {
   for (let i = 0; i < 7; i++) {
     const key = addDias(seg, i); const d = new Date(key + 'T12:00:00-03:00').getUTCDay();
     const jj = func.jornada && func.jornada[d]; const esp = esperado(jj && jj[0] ? jj : null); contratado += esp;
-    const bs = batidas.filter(b => b.data === key && b.status !== 'recusada').sort((a, b) => a.ts - b.ts);
+    const bs = batidas.filter(b => b.data === key && ativa_(b)).sort((a, b) => a.ts - b.ts);
     let t = 0; for (let k = 0; k + 1 < bs.length; k += 2) { let a = toMin(bs[k].hora), b = toMin(bs[k + 1].hora); if (b < a) b += 1440; t += b - a; }
     if (bs.length % 2 === 1 && key === hojeKey) t += Math.max(0, agora - toMin(bs[bs.length - 1].hora));
     if (key <= hojeKey) trab += t;
@@ -355,7 +392,7 @@ function lembretes() {
   const dow = +Utilities.formatDate(agora, TZ, 'u') % 7; // 1=seg … 7=dom → 0=dom
   let log = {}; try { log = JSON.parse(P.getProperty('LEMBRETES') || '{}'); } catch (e) {}
   if (log.data !== hoje) log = { data: hoje, enviados: [] };
-  const bs = rows('Batidas').filter(b => String(b.data) === hoje && b.status !== 'recusada');
+  const bs = rows('Batidas').filter(b => String(b.data) === hoje && ativa_(b));
   rows('Funcionarias').filter(f => isTrue(f.ativo)).forEach(f => {
     const func = pub(f); const j = func.jornada && func.jornada[dow]; if (!j || !j[0]) return;
     const meus = bs.filter(b => b.funcId === f.id); const nome = String(f.nome).split(' ')[0];
@@ -410,11 +447,11 @@ function linhasPlanilha(E) {
 }
 function htmlEspelho(f, E, ym) {
   const conf = rows('Confirmacoes').filter(c => c.funcId === f.id && c.ym === ym && c.acao === 'confirmado').pop();
-  const tr = E.dias.map(d => '<tr><td>' + d.key.split('-').reverse().join('/') + ' ' + DIAS[d.dow] + '</td><td>' + (d.bs.map(b => b.hora).join(' · ') || (d.j ? '—' : 'folga')) + '</td><td class=n>' + (d.trab ? mm(d.trab) : '') + '</td><td class=n>' + (d.extra ? mm(d.extra) : '') + '</td><td class=n>' + (d.deb ? mm(d.deb) : '') + '</td><td>' + d.obs.join(', ') + '</td></tr>').join('');
+  const tr = E.dias.map(d => '<tr><td>' + d.key.split('-').reverse().join('/') + ' ' + DIAS[d.dow] + '</td><td>' + (d.bs.map(b => b.hora + (b.status === 'ajuste' ? '*' : '')).join(' · ') || (d.j ? '—' : 'folga')) + '</td><td class=n>' + (d.trab ? mm(d.trab) : '') + '</td><td class=n>' + (d.extra ? mm(d.extra) : '') + '</td><td class=n>' + (d.deb ? mm(d.deb) : '') + '</td><td>' + d.obs.join(', ') + '</td></tr>').join('');
   return '<html><head><meta charset="utf-8"><style>body{font-family:Arial;font-size:10px}h1{font-size:16px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #ccc;padding:3px;text-align:left}.n{text-align:right}</style></head><body>' +
     '<h1>Espelho de ponto — ' + f.nome + '</h1><p>Empregador: ' + (cfg('empregador') || '') + ' · CPF ' + (cfg('cpfEmpregador') || '') + '<br>Funcionária: ' + f.nome + (f.cpf ? ' · CPF ' + f.cpf : '') + ' · ' + (f.cargo || '') + '<br>Período: ' + ym + '<br>Código do espelho: ' + hashEspelho(E) + '</p>' +
     '<p><b>Trabalhado:</b> ' + mm(E.tot.trab) + ' · <b>Extras:</b> ' + mm(E.tot.extra) + ' · <b>Atrasos/saídas:</b> ' + mm(E.tot.deb) + ' · <b>Faltas:</b> ' + E.tot.faltas + ' · <b>Noturno:</b> ' + mm(E.tot.not) + ' (reduzida ' + mm(E.tot.notReduz) + ')</p>' +
-    '<table><tr><th>Dia</th><th>Marcações</th><th class=n>Trab.</th><th class=n>Extra</th><th class=n>Débito</th><th>Obs.</th></tr>' + tr + '</table>' +
+    '<p>* marcação incluída pelo empregador, com motivo registrado.</p><table><tr><th>Dia</th><th>Marcações</th><th class=n>Trab.</th><th class=n>Extra</th><th class=n>Débito</th><th>Obs.</th></tr>' + tr + '</table>' +
     '<p>' + (conf ? 'Confirmado pela funcionária no app em ' + Utilities.formatDate(new Date(+conf.ts), TZ, 'dd/MM/yyyy HH:mm') + ' · código ' + String(conf.hash).slice(0, 16) : 'Aguardando confirmação da funcionária.') + '</p>' +
     '<br><br><p>_______________________________ &nbsp;&nbsp;&nbsp; _______________________________<br>Empregador &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Funcionária</p></body></html>';
 }
@@ -430,7 +467,7 @@ function noturno(a, b) { let t = 0; for (let d = -1440; d <= 1440; d += 1440) t 
 function espelho(func, batidas, ym, tol) {
   const Y = +ym.slice(0, 4), M = +ym.slice(5, 7); const ult = new Date(Y, M, 0).getDate();
   const hoje = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
-  const por = {}; batidas.filter(b => b.status !== 'recusada').forEach(b => (por[b.data] = por[b.data] || []).push(b));
+  const por = {}; batidas.filter(b => ativa_(b)).forEach(b => (por[b.data] = por[b.data] || []).push(b));
   const dias = [], tot = { trab: 0, esp: 0, extra: 0, deb: 0, not: 0, faltas: 0, alertas: 0 };
   for (let d = 1; d <= ult; d++) {
     const key = ym + '-' + ('0' + d).slice(-2); const dow = new Date(Y, M - 1, d).getDay();
@@ -448,6 +485,7 @@ function espelho(func, batidas, ym, tol) {
     if (!futuro && key !== hoje) { if (esp > 0 && !bs.length) { falta = true; deb = esp; obs.push('falta'); } else { extra = Math.max(0, saldo); deb = Math.max(0, -saldo); } }
     if (!j && bs.length) obs.push('dia sem jornada prevista');
     if (bs.some(b => b.status === 'pendente')) obs.push('localização a aprovar');
+    if (bs.some(b => b.status === 'ajuste')) obs.push('ajuste do empregador');
     if (obs.length) tot.alertas++;
     tot.trab += trab; if (!futuro) tot.esp += esp; tot.extra += extra; tot.deb += deb; tot.not += not; if (falta) tot.faltas++;
     dias.push({ key: key, d: d, dow: dow, j: j, esp: esp, bs: bs, trab: trab, extra: extra, deb: deb, not: not, obs: obs, futuro: futuro });
@@ -485,10 +523,11 @@ function setCfg(k, v) { delete MEMO_['Config']; const sh = ss().getSheetByName('
   for (let r = 1; r < vals.length; r++) if (vals[r][0] === k) { sh.getRange(r + 1, 2).setValue(v); return; } sh.appendRow([k, v]); }
 function batidasDe(funcId, ym) { return rows('Batidas').filter(b => b.funcId === funcId && (!ym || String(b.data).indexOf(ym) === 0)).map(front); }
 // Data e hora sempre a partir do carimbo exato (ts): a planilha às vezes converte "09:51" em hora e estraga a leitura
-function front(b) { const t = num(b.ts); return { id: b.id, funcId: b.funcId, nome: b.nome, data: t ? Utilities.formatDate(new Date(t), TZ, 'yyyy-MM-dd') : String(b.data), hora: t ? Utilities.formatDate(new Date(t), TZ, 'HH:mm') : String(b.hora), ts: t, tipo: b.tipo, localId: b.localId, lat: num(b.lat), lng: num(b.lng), acc: num(b.precisao), dist: num(b.distancia), selfieId: b.selfieId, hash: b.hash, status: b.status || 'ok' }; }
+function front(b) { const t = num(b.ts); return { id: b.id, funcId: b.funcId, nome: b.nome, data: t ? Utilities.formatDate(new Date(t), TZ, 'yyyy-MM-dd') : String(b.data), hora: t ? Utilities.formatDate(new Date(t), TZ, 'HH:mm') : String(b.hora), ts: t, tipo: b.tipo, localId: b.localId, lat: num(b.lat), lng: num(b.lng), acc: num(b.precisao), dist: num(b.distancia), selfieId: b.selfieId, hash: b.hash, status: b.status || 'ok', origem: b.origem || '', motivo: b.motivo || '' }; }
 function pub(f) { let j = {}; try { j = JSON.parse(f.jornada || '{}'); } catch (e) {} return { id: f.id, nome: f.nome, cpf: String(f.cpf || ''), cargo: f.cargo, localId: f.localId, ativo: isTrue(f.ativo), jornada: j }; }
 
 /* ===================== UTIL ===================== */
+function ativa_(b) { return b.status !== 'recusada' && b.status !== 'removida'; }
 function num(v) { if (typeof v === 'number') return v; const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isNaN(n) ? NaN : n; }
 function isTrue(v) { return v === true || v === 'TRUE' || v === 'true'; }
 function rnd(n) { let s = ''; while (s.length < n) s += Utilities.getUuid().replace(/-/g, ''); return s.slice(0, n); }
